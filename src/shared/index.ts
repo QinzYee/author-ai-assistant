@@ -52,8 +52,8 @@ export interface AssetRelation {
   description: string | null;
 }
 
-// ---------- 大纲树（卷→章→场景） ----------
-export type OutlineLevel = 'volume' | 'chapter' | 'scene';
+// ---------- 大纲树（创意→梗概→卷→章→场景） ----------
+export type OutlineLevel = 'idea' | 'synopsis' | 'volume' | 'chapter' | 'scene';
 export type OutlineStatus = 'planned' | 'confirmed' | 'writing' | 'done';
 
 /** 场景大纲结构（§4.2），chars 即「实体驱动确定性检索」的入口 */
@@ -204,6 +204,122 @@ export interface GenerationLog {
   input_tokens: number;
   output_tokens: number;
   created_at: string;
+}
+
+// ---------- 资产：输入 / 写回 ----------
+export interface AssetInput {
+  type: AssetType;
+  name: string;
+  core?: Record<string, unknown>;
+  extended?: Record<string, unknown> | null;
+  summary?: string | null;
+}
+
+export interface AssetWriteBack {
+  /** 新状态（作为该版本完整快照写入 asset_states） */
+  state: Record<string, unknown>;
+  source_scene_id?: string | null;
+  /** 可选：随写回一起更新 core/extended/summary */
+  patch?: Partial<Pick<Asset, 'core' | 'extended' | 'summary'>>;
+}
+
+export interface AssetRelationInput {
+  from_asset: string;
+  to_asset: string;
+  relation_type: string;
+  description?: string | null;
+}
+
+// ---------- 大纲：层级 / 生成 ----------
+export type OutlineNodeInput = {
+  parent_id?: string | null;
+  level: OutlineLevel;
+  title?: string | null;
+  summary?: string | null;
+  content?: SceneOutline | null;
+  sort_order?: number;
+  status?: OutlineStatus;
+};
+
+/** 分层生成的层级（§4.2 自顶向下链） */
+export type OutlineLayer = 'idea' | 'worldview' | 'synopsis' | 'character' | 'volume' | 'chapter' | 'scene';
+
+export interface GenerateOutlineRequest {
+  layer: OutlineLayer;
+  /** 子层生成时所属的父节点（chapter 生成时传 volume id，scene 生成时传 chapter id） */
+  parent_id?: string | null;
+  count?: number;
+}
+
+/** 大纲分层生成的产出（LLM 结构化结果） */
+export interface CoreIdea {
+  high_concept: string;
+  target_reader: string;
+  selling_points: string[];
+  logline: string;
+}
+
+export interface WorldviewItem {
+  name: string;
+  rule: string;
+  extended?: string;
+}
+
+export interface CharacterBio {
+  name: string;
+  role: '主角' | '配角' | '反派' | '其他';
+  identity: string;
+  personality: string;
+  goal: string;
+  motivation: string;
+  arc: string;
+  state?: string;
+  location?: string;
+  appearance?: string;
+}
+
+export interface Synopsis {
+  title: string;
+  three_acts: string[];
+  theme: string;
+}
+
+export interface VolumeOutlineItem {
+  title: string;
+  goal: string;
+  turning_point: string;
+  suspense: string;
+  ending_hook: string;
+}
+
+export interface ChapterOutlineItem {
+  title: string;
+  pov: string;
+  goal: string;
+  conflict: string;
+  ending_hook: string;
+  characters?: string[];
+}
+
+// ---------- 调研 ----------
+export interface ResearchHeatRank {
+  genre: string;
+  trend: string;
+}
+
+export interface ResearchReport {
+  heat_ranking: ResearchHeatRank[];
+  reader_profiles: string[];
+  core_pleasure_points: string[];
+  blue_ocean_ideas: string[];
+  golden_three_chapters: string[];
+  recommendation: string;
+}
+
+export interface SearchHit {
+  title: string;
+  url: string;
+  content: string;
 }
 
 // ---------- API 统一响应 ----------

@@ -43,7 +43,7 @@ export interface LlmGateway {
 }
 
 // ---------- 配置 ----------
-export type ProviderKind = 'deepseek' | 'openai' | 'siliconflow' | 'ollama';
+export type ProviderKind = 'deepseek' | 'openai' | 'siliconflow' | 'ollama' | 'mock';
 
 export interface ProviderConfig {
   provider: ProviderKind;

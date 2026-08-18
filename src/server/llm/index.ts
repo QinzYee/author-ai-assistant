@@ -7,6 +7,7 @@ import type {
 } from './types.js';
 import { createOpenAICompatGateway } from './provider/openai.js';
 import { createOllamaGateway } from './provider/ollama.js';
+import { createMockGateway } from './provider/mock.js';
 
 export * from './types.js';
 
@@ -19,6 +20,13 @@ export const DEFAULT_TIER_CONFIG: GatewayConfig = {
 
 /** 从环境变量构建分级配置 */
 export function loadGatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
+  if (env.GATEWAY_MODE === 'mock') {
+    return {
+      generate: { provider: 'mock', model: 'mock' },
+      extract: { provider: 'mock', model: 'mock' },
+      embed: { provider: 'mock', model: 'mock' },
+    };
+  }
   return {
     generate: {
       provider: 'deepseek',
@@ -43,6 +51,8 @@ export function loadGatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
 
 function createProvider(cfg: ProviderConfig): Pick<LlmGateway, 'generate' | 'extract' | 'embed'> {
   switch (cfg.provider) {
+    case 'mock':
+      return createMockGateway(cfg);
     case 'ollama':
       return createOllamaGateway(cfg);
     case 'deepseek':

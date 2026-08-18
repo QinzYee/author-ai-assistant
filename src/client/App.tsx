@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { NovelProvider, useNovel } from './context/NovelContext';
 import ResearchPage from './pages/ResearchPage';
 import OutlinePage from './pages/OutlinePage';
 import WritingPage from './pages/WritingPage';
@@ -15,14 +17,93 @@ const NAV = [
   { to: '/conflicts', label: '冲突台', icon: '⚠️', phase: 'P4' },
 ];
 
-export default function App() {
+function ProjectSelector() {
+  const { novels, current, select, create } = useNovel();
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState('');
+  const [genre, setGenre] = useState('');
+
+  return (
+    <div className="mb-5">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">项目</span>
+        <button
+          onClick={() => setCreating(true)}
+          className="ml-auto text-xs text-slate-400 hover:text-white px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700"
+        >
+          + 新建
+        </button>
+      </div>
+
+      {creating ? (
+        <form
+          className="flex flex-col gap-1.5 rounded-lg bg-slate-800/70 p-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!title.trim()) return;
+            void create({ title: title.trim(), genre: genre.trim() || undefined }).then(() => {
+              setTitle('');
+              setGenre('');
+              setCreating(false);
+            });
+          }}
+        >
+          <input
+            className="rounded bg-slate-900 px-2 py-1 text-sm outline-none focus:ring-1 ring-slate-500"
+            placeholder="书名"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            autoFocus
+          />
+          <input
+            className="rounded bg-slate-900 px-2 py-1 text-sm outline-none focus:ring-1 ring-slate-500"
+            placeholder="题材（可选）"
+            value={genre}
+            onChange={(e) => setGenre(e.target.value)}
+          />
+          <div className="flex gap-1.5 mt-1">
+            <button type="submit" className="flex-1 text-xs rounded bg-sky-600 hover:bg-sky-500 py-1">
+              创建
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreating(false)}
+              className="flex-1 text-xs rounded bg-slate-700 hover:bg-slate-600 py-1"
+            >
+              取消
+            </button>
+          </div>
+        </form>
+      ) : (
+        <select
+          className="w-full rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-200 outline-none focus:ring-1 ring-slate-500"
+          value={current?.id ?? ''}
+          onChange={(e) => select(e.target.value)}
+        >
+          {novels.length === 0 && <option value="">（还没有项目）</option>}
+          {novels.map((n) => (
+            <option key={n.id} value={n.id}>
+              {n.title}
+            </option>
+          ))}
+        </select>
+      )}
+      {current?.genre && <p className="text-[11px] text-slate-500 mt-1">{current.genre} · {current.status}</p>}
+    </div>
+  );
+}
+
+function Shell() {
+  const { current, loading } = useNovel();
+
   return (
     <div className="flex h-screen">
       <aside className="w-60 shrink-0 border-r border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-1">
-        <div className="mb-5">
+        <div className="mb-3">
           <h1 className="text-xl font-bold tracking-tight">Author AI</h1>
-          <p className="text-xs text-slate-500 mt-0.5">AI 小说创作助手 · 骨架 v0.1</p>
+          <p className="text-xs text-slate-500 mt-0.5">AI 小说创作助手</p>
         </div>
+        <ProjectSelector />
         {NAV.map((item) => (
           <NavLink
             key={item.to}
@@ -43,16 +124,42 @@ export default function App() {
       </aside>
 
       <main className="flex-1 overflow-auto p-6">
-        <Routes>
-          <Route path="/research" element={<ResearchPage />} />
-          <Route path="/outline" element={<OutlinePage />} />
-          <Route path="/writing" element={<WritingPage />} />
-          <Route path="/assets" element={<AssetsPage />} />
-          <Route path="/timeline" element={<TimelinePage />} />
-          <Route path="/conflicts" element={<ConflictsPage />} />
-          <Route path="*" element={<Navigate to="/research" replace />} />
-        </Routes>
+        {loading ? (
+          <div className="flex h-full items-center justify-center text-slate-500">加载中…</div>
+        ) : !current ? (
+          <NoProject />
+        ) : (
+          <Routes>
+            <Route path="/research" element={<ResearchPage />} />
+            <Route path="/outline" element={<OutlinePage />} />
+            <Route path="/writing" element={<WritingPage />} />
+            <Route path="/assets" element={<AssetsPage />} />
+            <Route path="/timeline" element={<TimelinePage />} />
+            <Route path="/conflicts" element={<ConflictsPage />} />
+            <Route path="*" element={<Navigate to="/research" replace />} />
+          </Routes>
+        )}
       </main>
     </div>
+  );
+}
+
+function NoProject() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="max-w-md text-center">
+        <div className="text-5xl mb-4">📖</div>
+        <h2 className="text-2xl font-semibold mb-2">还没有项目</h2>
+        <p className="text-slate-400 text-sm mb-4">在左侧「项目」新建一本书，然后开始调研题材、生成大纲。</p>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <NovelProvider>
+      <Shell />
+    </NovelProvider>
   );
 }
