@@ -9,15 +9,26 @@ import {
   createAssetRepository,
   createOutlineRepository,
   createResearchRepository,
+  createSceneRepository,
+  createSummaryRepository,
+  createFactCardRepository,
+  createConflictRepository,
+  createPlotDeviceRepository,
+  createChunkRepository,
 } from './db/index.js';
 import { createAssetService } from './modules/assets/index.js';
 import { createOutlineService } from './modules/outline/index.js';
 import { createResearchService } from './modules/research/index.js';
+import { createKnowledgeService } from './modules/knowledge/index.js';
+import { createMemoryService } from './modules/memory/index.js';
+import { createContextAssembler } from './modules/writing/contextAssembler.js';
+import { createWritingService } from './modules/writing/index.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerNovelRoutes } from './routes/novels.js';
 import { registerAssetRoutes } from './routes/assets.js';
 import { registerOutlineRoutes } from './routes/outline.js';
 import { registerResearchRoutes } from './routes/research.js';
+import { registerWritingRoutes } from './routes/writing.js';
 
 export interface AppDeps {
   db: Database.Database;
@@ -28,28 +39,85 @@ export interface AppDeps {
 export function buildApp(deps: AppDeps) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
 
-  // 依赖注入：repositories → services
-  const novels = createNovelRepository(deps.db);
-  const assets = createAssetService({ repo: createAssetRepository(deps.db) });
+  // 依赖注入：repositories
+  const db = deps.db;
+  const novels = createNovelRepository(db);
+  const assetRepo = createAssetRepository(db);
+  const outlineRepo = createOutlineRepository(db);
+  const sceneRepo = createSceneRepository(db);
+  const summaryRepo = createSummaryRepository(db);
+  const factRepo = createFactCardRepository(db);
+  const conflictRepo = createConflictRepository(db);
+  const plotRepo = createPlotDeviceRepository(db);
+  const chunkRepo = createChunkRepository(db);
+
+  // services
+  const assets = createAssetService({ repo: assetRepo });
+  const knowledge = createKnowledgeService({
+    chunks: chunkRepo,
+    scenes: sceneRepo,
+    outline: outlineRepo,
+    assets: assetRepo,
+    facts: factRepo,
+    gateway: deps.gateway,
+  });
+  const memory = createMemoryService({
+    summaries: summaryRepo,
+    scenes: sceneRepo,
+    outline: outlineRepo,
+    gateway: deps.gateway,
+  });
   const outline = createOutlineService({
-    repo: createOutlineRepository(deps.db),
-    assets: createAssetRepository(deps.db),
+    repo: outlineRepo,
+    assets: assetRepo,
     novels,
     gateway: deps.gateway,
   });
   const research = createResearchService({
-    repo: createResearchRepository(deps.db),
+    repo: createResearchRepository(db),
     novels,
     gateway: deps.gateway,
     tavilyApiKey: process.env.TAVILY_API_KEY,
   });
+  const assembler = createContextAssembler({
+    outline: outlineRepo,
+    assets: assetRepo,
+    summaries: summaryRepo,
+    facts: factRepo,
+    plotDevices: plotRepo,
+    knowledge,
+    gateway: deps.gateway,
+  });
+  const writing = createWritingService({
+    novels,
+    outline: outlineRepo,
+    scenes: sceneRepo,
+    assets,
+    facts: factRepo,
+    conflicts: conflictRepo,
+    plotDevices: plotRepo,
+    knowledge,
+    memory,
+    assembler,
+    gateway: deps.gateway,
+  });
 
   // 路由
-  registerHealthRoutes(app, { db: deps.db });
+  registerHealthRoutes(app, { db });
   registerNovelRoutes(app, { novels });
   registerAssetRoutes(app, { assets });
   registerOutlineRoutes(app, { outline });
   registerResearchRoutes(app, { research });
+  registerWritingRoutes(app, {
+    writing,
+    data: {
+      facts: factRepo,
+      summaries: summaryRepo,
+      chunks: chunkRepo,
+      conflicts: conflictRepo,
+      plotDevices: plotRepo,
+    },
+  });
 
   // 生产环境托管前端构建产物（dist/client）
   const clientDist = path.resolve(process.cwd(), 'dist', 'client');

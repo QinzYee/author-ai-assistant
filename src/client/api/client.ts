@@ -10,6 +10,12 @@ import type {
   GenerateOutlineRequest,
   TrendResearch,
   HealthInfo,
+  Scene,
+  FactCard,
+  Summary,
+  ContentChunk,
+  Conflict,
+  PlotDevice,
 } from '../types';
 
 export interface ApiEnvelope<T> {
@@ -76,3 +82,62 @@ export const generateOutlineLayer = (novelId: string, input: GenerateOutlineRequ
 export const getResearch = (novelId: string) => api<TrendResearch | null>(`/novels/${novelId}/research`);
 export const runResearch = (novelId: string, query?: string) =>
   api<TrendResearch>(`/novels/${novelId}/research`, { method: 'POST', body: JSON.stringify({ query: query ?? '' }) });
+
+// ---------- 创作 ----------
+export const listScenes = (novelId: string) => api<Scene[]>(`/novels/${novelId}/scenes`);
+export const getScene = (novelId: string, id: string) => api<Scene>(`/novels/${novelId}/scenes/${id}`);
+export const updateScene = (novelId: string, id: string, patch: { content?: string; status?: Scene['status'] }) =>
+  api<Scene>(`/novels/${novelId}/scenes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export const deleteScene = (novelId: string, id: string) => api<boolean>(`/novels/${novelId}/scenes/${id}`, { method: 'DELETE' });
+export const listFacts = (novelId: string) => api<FactCard[]>(`/novels/${novelId}/facts`);
+export const listSummaries = (novelId: string) => api<Summary[]>(`/novels/${novelId}/summaries`);
+export const listChunks = (novelId: string) => api<ContentChunk[]>(`/novels/${novelId}/chunks`);
+export const listConflicts = (novelId: string) => api<Conflict[]>(`/novels/${novelId}/conflicts`);
+export const listPlotDevices = (novelId: string) => api<PlotDevice[]>(`/novels/${novelId}/plotdevices`);
+
+/** SSE 流式生成场景 */
+export function generateSceneStream(
+  novelId: string,
+  outlineNodeId: string,
+  onEvent: (ev: { type: string; [k: string]: unknown }) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const controller = new AbortController();
+  (async () => {
+    try {
+      const res = await fetch(`/api/novels/${novelId}/writing/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outline_node_id: outlineNodeId }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const text = await res.text();
+        throw new Error(`SSE ${res.status}: ${text}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          try {
+            onEvent(JSON.parse(payload));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch (err) {
+      onError?.(err as Error);
+    }
+  })();
+  return () => controller.abort();
+}

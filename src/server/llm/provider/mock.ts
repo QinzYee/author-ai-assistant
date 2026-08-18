@@ -17,6 +17,43 @@ export interface MockGateway {
 function mockExtractResult(req: ExtractRequest): unknown {
   const text = `${req.system ?? ''}\n${req.user}`;
   // 顺序重要：先匹配唯一角色标记（更具体），再匹配内容特征。
+  if (/元数据提取器/.test(text)) {
+    return {
+      new_facts: ['林晚获得半页残卷，残卷上的符号与她的身世有关', '沈砚是旧神信徒，知道残卷的下落'],
+      asset_changes: {
+        林晚: { state: { location: '市立图书馆·古籍区', hp: '正常' } },
+        沈砚: { state: { location: '市立图书馆·古籍区', hp: '正常' } },
+      },
+      foreshadowing_ops: [
+        { op: 'plant', description: '残卷上的符号与林晚身世有关', type: 'identity' },
+        { op: 'develop', description: '沈砚知道残卷的下落', type: 'event' },
+      ],
+      pov: '林晚',
+      time: '主线第3天 21:40',
+    };
+  }
+  if (/资产更新器/.test(text)) {
+    return {
+      changes: [
+        { name: '林晚', state: { hp: '左臂受伤(第2章), 已简单包扎', location: '图书馆地下密室' }, relations: [{ to: '沈砚', type: '敌对' }] },
+        { name: '沈砚', state: { location: '图书馆地下密室', hp: '正常' }, relations: [] },
+      ],
+    };
+  }
+  if (/事实卡片提取器/.test(text)) {
+    return {
+      facts: [
+        { fact: '林晚在图书馆地下密室获得半页残卷', entities: ['林晚', '残卷'] },
+        { fact: '沈砚是旧神信徒', entities: ['沈砚'] },
+      ],
+    };
+  }
+  if (/一致性校验器/.test(text)) {
+    return { conflicts: [] };
+  }
+  if (/情节记忆整理器/.test(text)) {
+    return { summary: '林晚在图书馆闭馆后与沈砚对峙，发现残卷下落并首次正面交锋，沈砚逃脱，林晚获得半页残卷并发现其符号与身世有关。' };
+  }
   if (/题材分析师/.test(text) || /调研|热度榜单/.test(text)) {
     return {
       heat_ranking: [
@@ -106,10 +143,20 @@ function mockExtractResult(req: ExtractRequest): unknown {
 export function createMockGateway(_cfg: ProviderConfig): MockGateway {
   return {
     async *generate(req: GenerateRequest) {
-      const last = req.messages[req.messages.length - 1];
-      const text = typeof last?.content === 'string' ? last.content : '';
-      for (const chunk of text.match(/.{1,8}/g) ?? []) {
-        yield { type: 'text', text: chunk };
+      // 返回一段演示正文（流式分块），而非回显 prompt
+      const demo = [
+        '图书馆闭馆的铃声在空旷的走廊里回荡，林晚停在古籍区最后一排书架前。',
+        '昏黄的应急灯把书脊上的烫金字映成暗金色，空气里浮着陈旧的纸墨味，还有一丝不该出现在这里的潮湿。',
+        '她刚要转身，忽然听见有人在叫她的名字——一个极轻、极远的声音，像是从书页深处渗出来的。',
+        '「林晚。」',
+        '她僵住了。整座图书馆早已清空，管理员沈砚亲自锁的门。',
+        '可那个声音还在继续，一字一句，如同古老的祷文。她循声望去，书架的缝隙间，一张泛黄的残页正缓缓飘落。',
+        '残页上的符号她见过——年会那晚，那张被遗忘的纸巾上，画着同样的纹路。',
+        '「果然是你。」沈砚的声音从身后响起，温和平静，却让林晚脊背发凉。他站在灯光照不到的阴影里，嘴角带着一丝了然的微笑，「你果然听得见。」',
+        '林晚攥紧残页，后退一步。她知道，从这一刻起，自己再也回不到普通人的生活了。',
+      ].join('\n');
+      for (const piece of demo.match(/.{1,60}/g) ?? []) {
+        yield { type: 'text', text: piece };
       }
       yield { type: 'done' };
     },

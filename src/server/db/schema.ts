@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 
 /** 当前 schema 版本（用 PRAGMA user_version 跟踪） */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * 基础表 —— 对应架构文档 §5 数据模型（不含向量虚拟表，见 VEC_SQL）。
@@ -112,8 +112,9 @@ CREATE TABLE IF NOT EXISTS content_chunks (
   UNIQUE(scene_id, chunk_index)
 );
 
--- 全文索引（FTS5，混合检索用）
-CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(content, scene_id);
+-- 全文索引（FTS5，混合检索用；trigram 以更好支持中文子串匹配）
+-- id 列为 UNINDEXED 仅作回连 content_chunks 的映射
+CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(id UNINDEXED, content, scene_id UNINDEXED, tokenize='trigram');
 
 -- ============ 伏笔台账 ============
 CREATE TABLE IF NOT EXISTS plot_devices (
@@ -167,19 +168,26 @@ CREATE TABLE IF NOT EXISTS generation_logs (
 
 /**
  * 向量虚拟表 —— 需要 sqlite-vec 扩展加载后才可创建。
+ * 不声明主键：rowid 自动分配，与 content_chunks 的隐含 rowid 一一对应（同事务插入）。
  * 失败会抛错，由 migrate() 捕获降级（仅影响向量检索）。
  */
 export const VEC_SQL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vec USING vec0(
-  id integer primary key,
   embedding float[1024]
 );
 `;
 
 /** 执行迁移：建表 + 版本号 */
 export function migrate(db: Database.Database): { version: number; vecOk: boolean } {
+  const current = db.pragma('user_version', { simple: true }) as number;
+
   db.exec('BEGIN');
   try {
+    // v1 → v2：chunk_fts 改用 trigram tokenizer（中文检索），旧表重建
+    if (current < 2) {
+      db.exec('DROP TABLE IF EXISTS chunk_fts');
+    }
+
     db.exec(SCHEMA_SQL);
     let vecOk = true;
     try {
