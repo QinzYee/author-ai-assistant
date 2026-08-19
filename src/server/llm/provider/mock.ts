@@ -164,7 +164,7 @@ function mockExtractResult(req: ExtractRequest): unknown {
   return { ok: true, result: 'mock' };
 }
 
-export function createMockGateway(_cfg: ProviderConfig): MockGateway {
+export function createMockGateway(_getCfg: () => ProviderConfig): MockGateway {
   return {
     async *generate(req: GenerateRequest) {
       // 返回一段演示正文（流式分块），而非回显 prompt

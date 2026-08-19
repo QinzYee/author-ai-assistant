@@ -9,6 +9,7 @@ import AssetsPage from './pages/AssetsPage';
 import TimelinePage from './pages/TimelinePage';
 import ConflictsPage from './pages/ConflictsPage';
 import FactsPage from './pages/FactsPage';
+import SettingsPage from './pages/SettingsPage';
 
 const NAV = [
   { to: '/research', label: '调研', icon: '🔍', phase: 'P1' },
@@ -18,6 +19,7 @@ const NAV = [
   { to: '/timeline', label: '时间线', icon: '🕐', phase: 'P3' },
   { to: '/facts', label: '事实卡', icon: '🃏', phase: 'P4' },
   { to: '/conflicts', label: '冲突台', icon: '⚠️', phase: 'P4' },
+  { to: '/settings', label: '设置', icon: '⚙️', phase: 'SYS' },
 ];
 
 function ProjectSelector() {
@@ -142,6 +144,7 @@ function Shell() {
             <Route path="/timeline" element={<TimelinePage />} />
             <Route path="/facts" element={<FactsPage />} />
             <Route path="/conflicts" element={<ConflictsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/research" replace />} />
           </Routes>
         )}

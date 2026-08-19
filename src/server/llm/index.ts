@@ -49,36 +49,37 @@ export function loadGatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
   };
 }
 
-function createProvider(cfg: ProviderConfig): Pick<LlmGateway, 'generate' | 'extract' | 'embed'> {
+function createProvider(getCfg: () => ProviderConfig): Pick<LlmGateway, 'generate' | 'extract' | 'embed'> {
+  const cfg = getCfg();
   switch (cfg.provider) {
     case 'mock':
-      return createMockGateway(cfg);
+      return createMockGateway(getCfg);
     case 'ollama':
-      return createOllamaGateway(cfg);
+      return createOllamaGateway(getCfg);
     case 'deepseek':
     case 'openai':
     case 'siliconflow':
-      return createOpenAICompatGateway(cfg);
+      return createOpenAICompatGateway(getCfg);
     default:
       throw new Error(`未知 provider：${(cfg as ProviderConfig).provider}`);
   }
 }
 
-/** 组装完整网关：按分级配置分别实例化生成/提取/向量 provider */
-export function createGateway(config: GatewayConfig): LlmGateway {
-  const gen = createProvider(config.generate);
-  const ext = createProvider(config.extract);
-  const emb = createProvider(config.embed);
-
+/**
+ * 组装完整网关：按分级配置分别实例化生成/提取/向量 provider。
+ * 传入 `getConfig` getter（而非固定 config），使每次调用读取最新配置——
+ * 前端设置保存后无需重启即可热生效（§11.2 模型分级可热更新）。
+ */
+export function createGateway(getConfig: () => GatewayConfig): LlmGateway {
   return {
-    generate(req: GenerateRequest) {
-      return gen.generate(req);
+    generate(req) {
+      return createProvider(() => getConfig().generate).generate(req);
     },
-    extract(req: ExtractRequest) {
-      return ext.extract(req);
+    extract(req) {
+      return createProvider(() => getConfig().extract).extract(req);
     },
     embed(texts: string[], model?: string) {
-      return emb.embed(texts, model);
+      return createProvider(() => getConfig().embed).embed(texts, model);
     },
   };
 }

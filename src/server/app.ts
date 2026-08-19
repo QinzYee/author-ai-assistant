@@ -16,6 +16,7 @@ import {
   createPlotDeviceRepository,
   createChunkRepository,
 } from './db/index.js';
+import type { SettingsService } from './modules/settings/index.js';
 import { createAssetService } from './modules/assets/index.js';
 import { createOutlineService } from './modules/outline/index.js';
 import { createResearchService } from './modules/research/index.js';
@@ -36,10 +37,12 @@ import { registerWritingRoutes } from './routes/writing.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerQualityRoutes } from './routes/quality.js';
 import { registerTimelineRoutes } from './routes/timeline.js';
+import { registerSettingsRoutes } from './routes/settings.js';
 
 export interface AppDeps {
   db: Database.Database;
   gateway: LlmGateway;
+  settings: SettingsService;
 }
 
 /** 构建 Fastify 应用（不含 listen） */
@@ -136,6 +139,7 @@ export function buildApp(deps: AppDeps) {
 
   // 路由
   registerHealthRoutes(app, { db });
+  registerSettingsRoutes(app, { settings: deps.settings });
   registerNovelRoutes(app, { novels });
   registerAssetRoutes(app, { assets });
   registerOutlineRoutes(app, { outline });

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 
 /** 当前 schema 版本（用 PRAGMA user_version 跟踪） */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * 基础表 —— 对应架构文档 §5 数据模型（不含向量虚拟表，见 VEC_SQL）。
@@ -164,6 +164,13 @@ CREATE TABLE IF NOT EXISTS generation_logs (
   input_tokens INT DEFAULT 0,
   output_tokens INT DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- ============ 应用设置（LLM 配置等，key-value；前端设置面板写入，优先级高于 .env） ============
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
 );
 `;
 

@@ -41,22 +41,25 @@ function parseJsonContent(content: string): unknown {
   }
 }
 
-export function createOpenAICompatGateway(cfg: ProviderConfig): OpenAICompatGateway {
+export function createOpenAICompatGateway(getCfg: () => ProviderConfig): OpenAICompatGateway {
+  // 每次调用读取最新配置（前端设置可热生效）
+  const cfg = getCfg();
   const provider = cfg.provider;
-  const model = cfg.model;
-  const baseUrl = stripTrailingSlash(cfg.baseUrl ?? 'https://api.deepseek.com');
-  const apiKey = cfg.apiKey ?? '';
-  const chatUrl = `${baseUrl}/chat/completions`;
-  const embedUrl = `${baseUrl}/embeddings`;
 
-  function assertKey() {
+  function resolve(): ProviderConfig {
+    return getCfg();
+  }
+
+  function assertKey(apiKey: string | undefined) {
     if (!apiKey) {
-      throw new Error(`[llm:${provider}] 未配置 API Key，请在 .env 中设置（${provider}）`);
+      throw new Error(`[llm:${provider}] 未配置 API Key，请在设置中填写（${provider}）`);
     }
   }
 
   async function* generate(req: GenerateRequest): AsyncIterable<Chunk> {
-    assertKey();
+    const { apiKey, model, baseUrl } = resolve();
+    assertKey(apiKey);
+    const chatUrl = `${stripTrailingSlash(baseUrl ?? 'https://api.deepseek.com')}/chat/completions`;
     const res = await fetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -109,7 +112,9 @@ export function createOpenAICompatGateway(cfg: ProviderConfig): OpenAICompatGate
   }
 
   async function extract(req: ExtractRequest): Promise<StructuredResult> {
-    assertKey();
+    const { apiKey, model, baseUrl } = resolve();
+    assertKey(apiKey);
+    const chatUrl = `${stripTrailingSlash(baseUrl ?? 'https://api.deepseek.com')}/chat/completions`;
     const messages = [];
     if (req.system) messages.push({ role: 'system', content: req.system });
     messages.push({ role: 'user', content: req.user });
@@ -146,7 +151,9 @@ export function createOpenAICompatGateway(cfg: ProviderConfig): OpenAICompatGate
   }
 
   async function embed(texts: string[], modelOverride?: string): Promise<number[][]> {
-    assertKey();
+    const { apiKey, model, baseUrl } = resolve();
+    assertKey(apiKey);
+    const embedUrl = `${stripTrailingSlash(baseUrl ?? 'https://api.deepseek.com')}/embeddings`;
     const res = await fetch(embedUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },

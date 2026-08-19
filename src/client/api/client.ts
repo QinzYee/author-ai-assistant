@@ -252,3 +252,25 @@ export const getStateAtChapter = (novelId: string, chapterRef: { id?: string; or
   if (chapterRef.order !== undefined) q.set('order', String(chapterRef.order));
   return api<ChapterStateView>(`/novels/${novelId}/timeline/at?${q.toString()}`);
 };
+
+// ---------- 设置（LLM 配置，前端可编辑 + 连接测试） ----------
+export interface PublicSettings {
+  values: Record<string, string>;
+  sources: Record<string, 'db' | 'env'>;
+  gatewayMode: string;
+}
+
+export interface TestResult {
+  ok: boolean;
+  tier: 'generate' | 'extract' | 'embed';
+  provider: string;
+  model: string;
+  baseUrl: string;
+  latencyMs: number;
+  error?: string;
+}
+
+export const getSettings = () => api<PublicSettings>('/settings');
+export const saveSettings = (payload: Record<string, string>) =>
+  api<PublicSettings>('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+export const testSettingsConnection = () => api<TestResult[]>('/settings/test', { method: 'POST', body: '{}' });
