@@ -210,3 +210,45 @@ export interface PlotDeviceStats {
   due: number;
   chaptersWritten: number;
 }
+
+// ---------- 时间线（Phase 3 遗留：§9.2/§9.3 资产状态时间旅行） ----------
+export interface TimelineSnapshot extends AssetState {
+  sceneTitle: string | null;
+  chapterId: string | null;
+  chapterTitle: string | null;
+  chapterOrder: number | null;
+}
+
+export interface NovelTimeline {
+  chapters: Array<{ id: string; title: string | null; order: number }>;
+  assets: Array<{
+    id: string;
+    name: string;
+    type: Asset['type'];
+    currentVersion: number;
+    snapshots: TimelineSnapshot[];
+  }>;
+  assetless: Array<{ id: string; name: string; type: Asset['type']; currentVersion: number }>;
+}
+
+export interface ChapterStateView {
+  chapterId: string | null;
+  chapterTitle: string | null;
+  chapterOrder: number | null;
+  states: Array<{
+    assetId: string;
+    name: string;
+    type: Asset['type'];
+    version: number;
+    state: Record<string, unknown>;
+    sourceSceneId: string | null;
+  }>;
+}
+
+export const getTimeline = (novelId: string) => api<NovelTimeline>(`/novels/${novelId}/timeline`);
+export const getStateAtChapter = (novelId: string, chapterRef: { id?: string; order?: number }) => {
+  const q = new URLSearchParams();
+  if (chapterRef.id) q.set('chapter', chapterRef.id);
+  if (chapterRef.order !== undefined) q.set('order', String(chapterRef.order));
+  return api<ChapterStateView>(`/novels/${novelId}/timeline/at?${q.toString()}`);
+};

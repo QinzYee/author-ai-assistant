@@ -26,6 +26,7 @@ import { createWritingService } from './modules/writing/index.js';
 import { createExportService } from './modules/export/index.js';
 import { createPlotDeviceService } from './modules/plotdevices/index.js';
 import { createConsistencyService } from './modules/consistency/index.js';
+import { createTimelineService } from './modules/timeline/index.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerNovelRoutes } from './routes/novels.js';
 import { registerAssetRoutes } from './routes/assets.js';
@@ -34,6 +35,7 @@ import { registerResearchRoutes } from './routes/research.js';
 import { registerWritingRoutes } from './routes/writing.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerQualityRoutes } from './routes/quality.js';
+import { registerTimelineRoutes } from './routes/timeline.js';
 
 export interface AppDeps {
   db: Database.Database;
@@ -127,6 +129,10 @@ export function buildApp(deps: AppDeps) {
     plotDevices: plotRepo,
     plotDeviceService,
   });
+  const timeline = createTimelineService({
+    assets: assetRepo,
+    outline: outlineRepo,
+  });
 
   // 路由
   registerHealthRoutes(app, { db });
@@ -147,6 +153,7 @@ export function buildApp(deps: AppDeps) {
   });
   registerExportRoutes(app, { export: exportService });
   registerQualityRoutes(app, { consistency, plotDevices: plotDeviceService, facts: factRepo });
+  registerTimelineRoutes(app, { timeline });
 
   // 生产环境托管前端构建产物（dist/client）
   const clientDist = path.resolve(process.cwd(), 'dist', 'client');
