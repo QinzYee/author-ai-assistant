@@ -16,14 +16,24 @@ const DEEPSEEK_FIELDS: FieldDef[] = [
   { key: 'EXTRACT_MODEL', label: '提取/校验模型', placeholder: 'deepseek-chat', hint: '元数据/资产/事实/摘要/校验等 pass 用' },
 ];
 
+const EMBED_PROVIDER_OPTIONS = [
+  { value: '', label: '硅基流动（云端）', hint: '需 API Key，BGE-M3 按量计费' },
+  { value: 'ollama', label: 'Ollama（本地·免费）', hint: '无需 Key，需本机装 Ollama' },
+  { value: 'mock', label: 'Mock（演示）', hint: '无向量检索，仅走通流程' },
+];
+
 const SILICONFLOW_FIELDS: FieldDef[] = [
   { key: 'SILICONFLOW_API_KEY', label: 'API Key', placeholder: 'sk-…', secret: true },
   { key: 'SILICONFLOW_BASE_URL', label: 'Base URL', placeholder: 'https://api.siliconflow.cn/v1' },
   { key: 'EMBED_MODEL', label: 'Embedding 模型', placeholder: 'BAAI/bge-m3', hint: '正文分块向量化（RAG 检索用）' },
 ];
 
+const OLLAMA_FIELDS: FieldDef[] = [
+  { key: 'OLLAMA_BASE_URL', label: 'Ollama 地址', placeholder: 'http://localhost:11434' },
+  { key: 'EMBED_MODEL', label: 'Embedding 模型', placeholder: 'bge-m3', hint: 'Ollama 本地模型名（ollama pull bge-m3）' },
+];
+
 const MISC_FIELDS: FieldDef[] = [
-  { key: 'OLLAMA_BASE_URL', label: 'Ollama 地址（可选）', placeholder: 'http://localhost:11434' },
   { key: 'GATEWAY_MODE', label: '网关模式', placeholder: '留空 = 真实 API；填 mock = 演示数据' },
 ];
 
@@ -134,6 +144,10 @@ export default function SettingsPage() {
     );
   };
 
+  // 当前生效的 Embedding provider（DB 优先，其次 env 默认 siliconflow）
+  const effectiveEmbedProvider = (draft['EMBED_PROVIDER'] !== undefined ? draft['EMBED_PROVIDER'] : values['EMBED_PROVIDER'] ?? '') || '';
+  const embedFields = effectiveEmbedProvider === 'ollama' ? OLLAMA_FIELDS : effectiveEmbedProvider === 'mock' ? [] : SILICONFLOW_FIELDS;
+
   return (
     <div className="max-w-3xl">
       <h2 className="text-2xl font-semibold mb-1">设置</h2>
@@ -163,10 +177,34 @@ export default function SettingsPage() {
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3">🧬 Embedding（硅基流动 BGE-M3）</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {SILICONFLOW_FIELDS.map(renderField)}
+            <h3 className="text-sm font-semibold text-slate-300 mb-3">🧬 Embedding（正文向量化 · RAG 检索）</h3>
+            <div className="mb-3">
+              <span className="flex items-center gap-2 text-xs text-slate-500">
+                提供方
+                {sources['EMBED_PROVIDER'] === 'db' ? (
+                  <span className="rounded bg-sky-900/50 text-sky-300 px-1 py-0.5 text-[10px]">已在前端设置</span>
+                ) : (
+                  <span className="rounded bg-slate-800 text-slate-500 px-1 py-0.5 text-[10px]">默认（env）</span>
+                )}
+              </span>
+              <select
+                className="mt-1 w-full rounded bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-sm outline-none focus:ring-1 ring-sky-500"
+                value={effectiveEmbedProvider}
+                onChange={(e) => setDraft((d) => ({ ...d, EMBED_PROVIDER: e.target.value }))}
+              >
+                {EMBED_PROVIDER_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <span className="text-[11px] text-slate-600">
+                {EMBED_PROVIDER_OPTIONS.find((o) => o.value === effectiveEmbedProvider)?.hint ?? ''}
+              </span>
             </div>
+            {embedFields.length > 0 && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {embedFields.map(renderField)}
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">

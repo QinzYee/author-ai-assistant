@@ -17,6 +17,7 @@ export interface LlmSettingsPayload {
   extractModel?: string;
   siliconflowApiKey?: string;
   siliconflowBaseUrl?: string;
+  embedProvider?: string;
   embedModel?: string;
   ollamaBaseUrl?: string;
   gatewayMode?: string;
@@ -29,6 +30,7 @@ const DB_KEY: Record<keyof LlmSettingsPayload, string> = {
   extractModel: 'EXTRACT_MODEL',
   siliconflowApiKey: 'SILICONFLOW_API_KEY',
   siliconflowBaseUrl: 'SILICONFLOW_BASE_URL',
+  embedProvider: 'EMBED_PROVIDER',
   embedModel: 'EMBED_MODEL',
   ollamaBaseUrl: 'OLLAMA_BASE_URL',
   gatewayMode: 'GATEWAY_MODE',
@@ -92,9 +94,10 @@ export function createSettingsService(deps: SettingsDeps) {
       },
       embed: {
         ...base.embed,
-        provider: base.embed.provider, // embedding 的 provider 仍由 env 决定（默认硅基流动）
+        // provider 可由前端切换：siliconflow（云端）/ ollama（本地免费）/ mock
+        provider: (pick('EMBED_PROVIDER') as never) ?? base.embed.provider,
         apiKey: pick('SILICONFLOW_API_KEY') ?? base.embed.apiKey,
-        baseUrl: pick('SILICONFLOW_BASE_URL') ?? base.embed.baseUrl,
+        baseUrl: pick('SILICONFLOW_BASE_URL') ?? pick('OLLAMA_BASE_URL') ?? base.embed.baseUrl,
         model: pick('EMBED_MODEL') ?? base.embed.model,
       },
     };
@@ -180,14 +183,26 @@ export function createSettingsService(deps: SettingsDeps) {
       const pc = cfg.embed;
       const baseUrl = (pc.baseUrl ?? '').replace(/\/+$/, '');
       const started = Date.now();
+      const isOllama = pc.provider === 'ollama';
       try {
-        if (!pc.apiKey) throw new Error('未配置 API Key');
-        const res = await fetch(`${baseUrl}/embeddings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pc.apiKey}` },
-          body: JSON.stringify({ model: pc.model, input: ['ping'] }),
-          signal: AbortSignal.timeout(15000),
-        });
+        let res: Response;
+        if (isOllama) {
+          // Ollama 本地 embedding：无需 API Key
+          res = await fetch(`${baseUrl}/api/embed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: pc.model, input: ['ping'] }),
+            signal: AbortSignal.timeout(15000),
+          });
+        } else {
+          if (!pc.apiKey) throw new Error('未配置 API Key');
+          res = await fetch(`${baseUrl}/embeddings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pc.apiKey}` },
+            body: JSON.stringify({ model: pc.model, input: ['ping'] }),
+            signal: AbortSignal.timeout(15000),
+          });
+        }
         const latencyMs = Date.now() - started;
         if (!res.ok) {
           const text = (await res.text()).slice(0, 300);
@@ -208,7 +223,8 @@ export function createSettingsService(deps: SettingsDeps) {
     };
 
     // mock 模式：直接返回「可用」（无需网络）
-    if ((env['GATEWAY_MODE'] ?? cfg.generate.provider) === 'mock') {
+    const mockMode = (env['GATEWAY_MODE'] ?? cfg.generate.provider) === 'mock' || cfg.embed.provider === 'mock';
+    if (mockMode) {
       return ['generate', 'extract', 'embed'].map((tier) => ({
         ok: true,
         tier: tier as 'generate' | 'extract' | 'embed',
