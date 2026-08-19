@@ -17,6 +17,30 @@ export interface MockGateway {
 function mockExtractResult(req: ExtractRequest): unknown {
   const text = `${req.system ?? ''}\n${req.user}`;
   // 顺序重要：先匹配唯一角色标记（更具体），再匹配内容特征。
+  if (/伏笔台账整理器/.test(text)) {
+    return {
+      ops: [
+        { op: 'plant', description: '残卷上的符号与林晚身世有关', type: 'identity' },
+        { op: 'develop', description: '沈砚知道残卷的下落', type: 'event' },
+      ],
+    };
+  }
+  if (/资产更新器/.test(text)) {
+    return {
+      changes: [
+        { name: '林晚', state: { hp: '左臂受伤(第2章), 已简单包扎', location: '图书馆地下密室' }, relations: [{ to: '沈砚', type: '敌对' }] },
+        { name: '沈砚', state: { location: '图书馆地下密室', hp: '正常' }, relations: [] },
+      ],
+    };
+  }
+  if (/事实卡片提取器/.test(text)) {
+    return {
+      facts: [
+        { fact: '林晚在图书馆地下密室获得半页残卷', entities: ['林晚', '残卷'] },
+        { fact: '沈砚是旧神信徒', entities: ['沈砚'] },
+      ],
+    };
+  }
   if (/元数据提取器/.test(text)) {
     return {
       new_facts: ['林晚获得半页残卷，残卷上的符号与她的身世有关', '沈砚是旧神信徒，知道残卷的下落'],

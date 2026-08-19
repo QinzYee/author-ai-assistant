@@ -65,6 +65,10 @@ export function buildApp(deps: AppDeps) {
     summaries: summaryRepo,
     scenes: sceneRepo,
     outline: outlineRepo,
+    facts: factRepo,
+    plotDevices: plotRepo,
+    assets: assetRepo,
+    knowledge,
     gateway: deps.gateway,
   });
   const outline = createOutlineService({
@@ -110,6 +114,7 @@ export function buildApp(deps: AppDeps) {
   registerResearchRoutes(app, { research });
   registerWritingRoutes(app, {
     writing,
+    memory,
     data: {
       facts: factRepo,
       summaries: summaryRepo,

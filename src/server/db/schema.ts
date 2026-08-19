@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 
 /** 当前 schema 版本（用 PRAGMA user_version 跟踪） */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * 基础表 —— 对应架构文档 §5 数据模型（不含向量虚拟表，见 VEC_SQL）。
@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS scenes (
   word_count INT DEFAULT 0,
   meta JSON,
   status TEXT DEFAULT 'draft',
+  compacted INT DEFAULT 0,              -- 0=工作记忆(raw) 1=已物化到 L3（§7.2 裁剪标记）
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -183,12 +184,23 @@ export function migrate(db: Database.Database): { version: number; vecOk: boolea
 
   db.exec('BEGIN');
   try {
-    // v1 → v2：chunk_fts 改用 trigram tokenizer（中文检索），旧表重建
+    // v1 → v2：chunk_fts 改用 trigram tokenizer（中文检索），旧表须在建表前重建
     if (current < 2) {
       db.exec('DROP TABLE IF EXISTS chunk_fts');
     }
 
     db.exec(SCHEMA_SQL);
+
+    // v2 → v3：scenes 增加 compacted 标记列（§7.2 裁剪标记）
+    // 必须在 SCHEMA_SQL 建表之后执行（旧库缺列时补列；新库已在 CREATE 中带列）
+    if (current < 3) {
+      const cols = db.pragma("table_info('scenes')") as Array<{ name: string }>;
+      const hasCol = cols.some((c) => c.name === 'compacted');
+      if (!hasCol) {
+        db.exec("ALTER TABLE scenes ADD COLUMN compacted INT DEFAULT 0");
+      }
+    }
+
     let vecOk = true;
     try {
       db.exec(VEC_SQL);

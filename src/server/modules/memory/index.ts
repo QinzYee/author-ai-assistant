@@ -1,23 +1,50 @@
-// 三级记忆（§7）—— Phase 2 提供 L2 摘要树的滚动维护；
-// L1 工作记忆与 compact（物化优先）在 Phase 3 实现。
+// 三级记忆（§7）—— L2 摘要树滚动维护 + compact（物化优先，§7.2）
 import type { LlmGateway } from '../../llm/index.js';
 import type { SummaryRepository } from '../../db/repositories/summaries.js';
 import type { SceneRepository } from '../../db/repositories/scenes.js';
 import type { OutlineRepository } from '../../db/repositories/outline.js';
+import type { FactCardRepository } from '../../db/repositories/facts.js';
+import type { PlotDeviceRepository } from '../../db/repositories/plotdevices.js';
+import type { AssetRepository } from '../../db/repositories/assets.js';
+import type { KnowledgeService } from '../knowledge/index.js';
 import type { OutlineNode, SummaryLevel } from '../../../shared/index.js';
 
 export interface MemoryDeps {
   summaries: SummaryRepository;
   scenes: SceneRepository;
   outline: OutlineRepository;
+  facts: FactCardRepository;
+  plotDevices: PlotDeviceRepository;
+  assets: AssetRepository;
+  knowledge: KnowledgeService;
   gateway: LlmGateway;
 }
 
 const SUMMARY_PROMPT = (kind: string) =>
   `你是小说情节记忆整理器。将给定的${kind}内容压缩为简洁的情节摘要（保留关键事件、人物状态变化、伏笔推进），150 字以内，只输出 JSON：{"summary":"..."}`;
 
+const MATERIALIZE_FACTS_PROMPT = `你是事实卡片提取器。将场景正文中的持久事实提取为原子事实卡片。只输出 JSON：
+{"facts":[{"fact":"原子事实描述","entities":["相关实体"]}]}`;
+
+const MATERIALIZE_ASSETS_PROMPT = `你是资产更新器。根据场景正文提取资产状态变更。只输出 JSON：
+{"changes":[{"name":"人物/物品名","state":{"hp":"...","location":"..."},"relations":[]}]}`;
+
+const MATERIALIZE_PLOT_PROMPT = `你是伏笔台账整理器。提取正文中的伏笔操作。只输出 JSON：
+{"ops":[{"op":"plant|develop|payoff","description":"伏笔描述","type":"identity|item|event|prophecy|location"}]}`;
+
+/** L1 工作记忆预算（§7.1，≈16K token） */
+export const L1_BUDGET_TOKENS = 16000;
+/** 触发 compact 的占用阈值（§7.2：>85%） */
+export const L1_COMPACT_THRESHOLD = 0.85;
+
 export function createMemoryService(deps: MemoryDeps) {
-  const { summaries, scenes, outline, gateway } = deps;
+  const { summaries, scenes, outline, facts, plotDevices, assets, knowledge, gateway } = deps;
+
+  /** 估算某小说当前 L1 工作记忆占用（未 compact 场景正文的 token 总量，§7.1） */
+  function workingMemoryTokens(novelId: string): number {
+    const uncompacted = scenes.listForNovel(novelId).filter((s) => !s.compacted);
+    return uncompacted.reduce((acc, s) => acc + knowledge.estimateTokens(s.content), 0);
+  }
 
   /** 生成场景摘要并写入 L2（§4.3 pass 6） */
   async function summarizeScene(sceneId: string): Promise<string> {
@@ -30,6 +57,88 @@ export function createMemoryService(deps: MemoryDeps) {
     const summary = typeof out.summary === 'string' ? out.summary : scene.content.slice(0, 100);
     summaries.save({ novel_id: scene.novel_id, level: 'scene', ref_id: scene.id, content: summary });
     return summary;
+  }
+
+  /**
+   * compact 物化优先（§7.2）：取最旧的未 compact 场景，三步：
+   *  ① 物化（Materialize）：事实卡片 + 资产写回 + 伏笔操作 → L3（细节不依赖原文）
+   *  ② 摘要（Summarize）：折叠为场景摘要 → L2
+   *  ③ 裁剪（Trim）：标记 compacted（原文仍在 L3 chunk，后续 RAG 取回）
+   */
+  async function compact(novelId: string, count = 3): Promise<{ compacted: string[]; workingTokens: number }> {
+    const candidates = scenes.listOldestUncompacted(novelId, count);
+    const compacted: string[] = [];
+
+    for (const scene of candidates) {
+      // ① 物化：事实卡片（去重）
+      const factsOut = (await gateway.extract({
+        system: MATERIALIZE_FACTS_PROMPT,
+        user: scene.content.slice(0, 4000),
+      })).json as { facts?: Array<{ fact: string; entities?: string[] }> };
+      for (const f of factsOut.facts ?? []) {
+        if (!f?.fact || facts.findDuplicate(novelId, f.fact)) continue;
+        facts.create({ novel_id: novelId, fact: f.fact, entities: f.entities ?? [], source_scene_id: scene.id });
+      }
+
+      // ① 物化：资产状态变更（写回 asset_states，版本+1）
+      const assetsOut = (await gateway.extract({
+        system: MATERIALIZE_ASSETS_PROMPT,
+        user: scene.content.slice(0, 4000),
+      })).json as { changes?: Array<{ name: string; state: Record<string, unknown> }> };
+      for (const change of assetsOut.changes ?? []) {
+        const asset = assets.list(novelId).find((a) => a.name === change.name || a.name.includes(change.name));
+        if (asset) assets.writeBack(asset.id, { state: change.state }, scene.id);
+      }
+
+      // ① 物化：伏笔操作
+      const plotOut = (await gateway.extract({
+        system: MATERIALIZE_PLOT_PROMPT,
+        user: scene.content.slice(0, 4000),
+      })).json as { ops?: Array<{ op: string; description: string; type?: string }> };
+      for (const op of plotOut.ops ?? []) {
+        if (!op?.description) continue;
+        if (op.op === 'plant') {
+          if (!plotDevices.findSimilar(novelId, op.description)) {
+            plotDevices.create({
+              novel_id: novelId,
+              type: (op.type as never) ?? 'event',
+              description: op.description,
+              status: 'planted',
+              planted_scene_id: scene.id,
+            });
+          }
+        } else {
+          const dev = plotDevices.findSimilar(novelId, op.description);
+          if (dev) {
+            plotDevices.updateStatus(dev.id, op.op === 'payoff' ? 'paid_off' : 'developing');
+          }
+        }
+      }
+
+      // ② 摘要（若缺失）
+      const existing = summaries.latestForRef(scene.id, 'scene');
+      if (!existing) {
+        await summarizeScene(scene.id);
+      }
+
+      // ③ 裁剪标记（原文保留在 L3，不再进 L1）
+      scenes.markCompacted(scene.id, true);
+      compacted.push(scene.id);
+    }
+
+    return { compacted, workingTokens: workingMemoryTokens(novelId) };
+  }
+
+  /** §7.2 触发判断：占用 > 85% 即需 compact */
+  function needsCompact(novelId: string): boolean {
+    return workingMemoryTokens(novelId) / L1_BUDGET_TOKENS > L1_COMPACT_THRESHOLD;
+  }
+
+  /** 场景完成时：若工作记忆超阈值，自动触发 compact（§7.2 触发条件） */
+  async function maybeAutoCompact(novelId: string, count = 3): Promise<{ did: boolean; compacted: string[] }> {
+    if (!needsCompact(novelId)) return { did: false, compacted: [] };
+    const result = await compact(novelId, count);
+    return { did: true, compacted: result.compacted };
   }
 
   /** 场景完成时：若本章全部场景已生成 → 触发章摘要更新（§7.3） */
@@ -105,6 +214,10 @@ export function createMemoryService(deps: MemoryDeps) {
   }
 
   return {
+    compact,
+    needsCompact,
+    maybeAutoCompact,
+    workingMemoryTokens,
     summarizeScene,
     rollupAfterScene,
     listSummaries(novelId: string) {
@@ -112,6 +225,17 @@ export function createMemoryService(deps: MemoryDeps) {
     },
     getSceneSummary(sceneId: string) {
       return summaries.latestForRef(sceneId, 'scene');
+    },
+    memoryStatus(novelId: string) {
+      const tokens = workingMemoryTokens(novelId);
+      return {
+        workingTokens: tokens,
+        budget: L1_BUDGET_TOKENS,
+        usageRatio: tokens / L1_BUDGET_TOKENS,
+        needsCompact: needsCompact(novelId),
+        compactedCount: scenes.listCompacted(novelId).length,
+        totalScenes: scenes.listForNovel(novelId).length,
+      };
     },
   };
 }

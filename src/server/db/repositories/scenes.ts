@@ -19,6 +19,7 @@ interface SceneRow {
   word_count: number;
   meta: string | null;
   status: SceneStatus;
+  compacted: number;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +33,7 @@ function toScene(row: SceneRow): Scene {
     word_count: row.word_count,
     meta: row.meta ? JSON.parse(row.meta) : null,
     status: row.status,
+    compacted: row.compacted === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -42,6 +44,10 @@ export interface SceneRepository {
   get(id: string): Scene | null;
   listForNovel(novelId: string): Scene[];
   listForOutlineNode(outlineNodeId: string): Scene[];
+  /** 按时间顺序取前 N 个未 compact 的场景（§7.2 裁剪候选） */
+  listOldestUncompacted(novelId: string, limit: number): Scene[];
+  listCompacted(novelId: string): Scene[];
+  markCompacted(id: string, compacted: boolean): Scene | null;
   update(id: string, patch: Partial<Pick<Scene, 'content' | 'status' | 'meta'>>): Scene | null;
   remove(id: string): boolean;
   countWords(content: string): number;
@@ -49,12 +55,17 @@ export interface SceneRepository {
 
 export function createSceneRepository(db: Database.Database): SceneRepository {
   const stmtInsert = db.prepare(
-    `INSERT INTO scenes (id, novel_id, outline_node_id, content, word_count, meta, status)
-     VALUES (@id, @novel_id, @outline_node_id, @content, @word_count, @meta, @status)`
+    `INSERT INTO scenes (id, novel_id, outline_node_id, content, word_count, meta, status, compacted)
+     VALUES (@id, @novel_id, @outline_node_id, @content, @word_count, @meta, @status, @compacted)`
   );
   const stmtGet = db.prepare('SELECT * FROM scenes WHERE id = ?');
   const stmtListNovel = db.prepare('SELECT * FROM scenes WHERE novel_id = ? ORDER BY created_at ASC, id ASC');
   const stmtListOutline = db.prepare('SELECT * FROM scenes WHERE outline_node_id = ? ORDER BY created_at ASC, id ASC');
+  const stmtOldestUncompacted = db.prepare(
+    "SELECT * FROM scenes WHERE novel_id = ? AND compacted = 0 ORDER BY created_at ASC, id ASC LIMIT ?"
+  );
+  const stmtCompacted = db.prepare('SELECT * FROM scenes WHERE novel_id = ? AND compacted = 1 ORDER BY created_at ASC');
+  const stmtMarkCompacted = db.prepare("UPDATE scenes SET compacted = ?, updated_at = datetime('now') WHERE id = ?");
   const stmtUpdate = db.prepare(
     `UPDATE scenes SET content = COALESCE(@content, content), status = COALESCE(@status, status),
        meta = COALESCE(@meta, meta), updated_at = datetime('now') WHERE id = @id`
@@ -78,6 +89,7 @@ export function createSceneRepository(db: Database.Database): SceneRepository {
         word_count: input.word_count ?? countWords(input.content),
         meta: input.meta ? JSON.stringify(input.meta) : null,
         status: input.status ?? 'draft',
+        compacted: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -93,6 +105,19 @@ export function createSceneRepository(db: Database.Database): SceneRepository {
     },
     listForOutlineNode(outlineNodeId) {
       return (stmtListOutline.all(outlineNodeId) as SceneRow[]).map(toScene);
+    },
+    listOldestUncompacted(novelId, limit) {
+      return (stmtOldestUncompacted.all(novelId, limit) as SceneRow[]).map(toScene);
+    },
+    listCompacted(novelId) {
+      return (stmtCompacted.all(novelId) as SceneRow[]).map(toScene);
+    },
+    markCompacted(id, compacted) {
+      const current = stmtGet.get(id) as SceneRow | undefined;
+      if (!current) return null;
+      stmtMarkCompacted.run(compacted ? 1 : 0, id);
+      const row = stmtGet.get(id) as SceneRow;
+      return toScene(row);
     },
     update(id, patch) {
       const current = stmtGet.get(id) as SceneRow | undefined;

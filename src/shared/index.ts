@@ -111,6 +111,8 @@ export interface Scene {
   word_count: number;
   meta: SceneMeta | null;
   status: SceneStatus;
+  /** §7.2 裁剪标记：true=已物化到 L3，正文仅保留在长期库，不再进 L1 工作记忆 */
+  compacted: boolean;
   created_at: string;
   updated_at: string;
 }
