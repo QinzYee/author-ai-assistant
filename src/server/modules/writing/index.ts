@@ -144,6 +144,12 @@ export function createWritingService(deps: WritingDeps) {
     emit(onEvent, { type: 'status', stage: 'index', message: '分块入库…' });
     const chunkCount = await knowledge.indexScene(scene.id);
 
+    // ⑩ compact 自动触发（§7.2：L1 工作记忆占用 > 85% 时物化最旧场景）
+    const autoCompact = await memory.maybeAutoCompact(novelId, 3);
+    if (autoCompact.did) {
+      emit(onEvent, { type: 'status', stage: 'compact', message: `compact 物化 ${autoCompact.compacted.length} 个场景` });
+    }
+
     // 完成
     scene = scenes.get(scene.id) ?? scene;
     emit(onEvent, { type: 'done', scene });

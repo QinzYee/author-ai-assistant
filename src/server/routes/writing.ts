@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { WritingService } from '../modules/writing/index.js';
+import type { MemoryService } from '../modules/memory/index.js';
 import type { ApiResponse } from '../../shared/index.js';
 
 export interface WritingDataDeps {
@@ -10,8 +11,8 @@ export interface WritingDataDeps {
   plotDevices: ReturnType<typeof import('../db/index.js').createPlotDeviceRepository>;
 }
 
-export function registerWritingRoutes(app: FastifyInstance, deps: { writing: WritingService; data: WritingDataDeps }) {
-  const { writing, data } = deps;
+export function registerWritingRoutes(app: FastifyInstance, deps: { writing: WritingService; data: WritingDataDeps; memory: MemoryService }) {
+  const { writing, data, memory } = deps;
 
   // 场景列表
   app.get(
@@ -107,5 +108,15 @@ export function registerWritingRoutes(app: FastifyInstance, deps: { writing: Wri
   });
   app.get('/api/novels/:novelId/plotdevices', async (req: FastifyRequest<{ Params: { novelId: string } }>): Promise<ApiResponse<unknown[]>> => {
     return { ok: true, data: data.plotDevices.list(req.params.novelId) };
+  });
+
+  // ---- 记忆（§7） ----
+  app.get('/api/novels/:novelId/memory', async (req: FastifyRequest<{ Params: { novelId: string } }>): Promise<ApiResponse<unknown>> => {
+    return { ok: true, data: memory.memoryStatus(req.params.novelId) };
+  });
+  // 手动触发 compact（§7.2 物化优先）
+  app.post('/api/novels/:novelId/memory/compact', async (req: FastifyRequest<{ Params: { novelId: string }; Body?: { count?: number } }>): Promise<ApiResponse<unknown>> => {
+    const result = await memory.compact(req.params.novelId, req.body?.count ?? 3);
+    return { ok: true, data: result };
   });
 }
