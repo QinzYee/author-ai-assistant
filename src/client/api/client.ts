@@ -90,6 +90,7 @@ export const updateScene = (novelId: string, id: string, patch: { content?: stri
   api<Scene>(`/novels/${novelId}/scenes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 export const deleteScene = (novelId: string, id: string) => api<boolean>(`/novels/${novelId}/scenes/${id}`, { method: 'DELETE' });
 export const listFacts = (novelId: string) => api<FactCard[]>(`/novels/${novelId}/facts`);
+export const listAllFacts = (novelId: string) => api<FactCard[]>(`/novels/${novelId}/facts/all`);
 export const listSummaries = (novelId: string) => api<Summary[]>(`/novels/${novelId}/summaries`);
 export const listChunks = (novelId: string) => api<ContentChunk[]>(`/novels/${novelId}/chunks`);
 export const listConflicts = (novelId: string) => api<Conflict[]>(`/novels/${novelId}/conflicts`);
@@ -140,4 +141,72 @@ export function generateSceneStream(
     }
   })();
   return () => controller.abort();
+}
+
+// ---------- 质量闭环（Phase 4） ----------
+export const resolveConflict = (novelId: string, id: string, status: Conflict['status'], resolution?: string) =>
+  api<Conflict>(`/novels/${novelId}/conflicts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, resolution: resolution ?? '' }),
+  });
+export const updatePlotDevice = (novelId: string, id: string, status: PlotDevice['status']) =>
+  api<PlotDevice>(`/novels/${novelId}/plotdevices/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+export const plotDeviceStats = (novelId: string) =>
+  api<{ planted: number; developing: number; paid_off: number; abandoned: number; forgotten: number; total: number; due: number; chaptersWritten: number }>(
+    `/novels/${novelId}/plotdevices/stats`
+  );
+export const detectForgottenPlotDevices = (novelId: string) =>
+  api<{ forgotten: PlotDevice[] }>(`/novels/${novelId}/plotdevices/detect-forgotten`, { method: 'POST' });
+export const runConsistencyCheck = (novelId: string) =>
+  api<{
+    checkedAt: string;
+    forgotten: Array<{ id: string; description: string }>;
+    createdConflicts: Array<{ id: string; description: string }>;
+    openConflictCount: number;
+    stats: PlotDeviceStats;
+  }>(`/novels/${novelId}/consistency/check`, { method: 'POST' });
+export const updateFactStatus = (novelId: string, id: string, status: FactCard['status']) =>
+  api<FactCard>(`/novels/${novelId}/facts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+
+// 导出下载：直接构造下载链接（非 JSON 响应）
+export function exportUrl(novelId: string, format: 'md' | 'epub' | 'docx'): string {
+  return `/api/novels/${novelId}/export?format=${format}`;
+}
+
+/** 导出并触发浏览器下载；pandoc 缺失等错误会以 Error 抛出（fetch 后可读 JSON 错误） */
+export async function exportNovel(novelId: string, format: 'md' | 'epub' | 'docx'): Promise<void> {
+  const res = await fetch(exportUrl(novelId, format));
+  if (!res.ok) {
+    let message = `导出失败（${res.status}）`;
+    try {
+      const body = (await res.json()) as ApiEnvelope<unknown>;
+      if (body.error) message = body.error;
+    } catch {
+      /* 非 JSON 错误体，保留状态码信息 */
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match?.[1] ?? `novel.${format}`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export interface PlotDeviceStats {
+  planted: number;
+  developing: number;
+  paid_off: number;
+  abandoned: number;
+  forgotten: number;
+  total: number;
+  due: number;
+  chaptersWritten: number;
 }

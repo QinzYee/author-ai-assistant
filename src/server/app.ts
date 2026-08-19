@@ -23,12 +23,17 @@ import { createKnowledgeService } from './modules/knowledge/index.js';
 import { createMemoryService } from './modules/memory/index.js';
 import { createContextAssembler } from './modules/writing/contextAssembler.js';
 import { createWritingService } from './modules/writing/index.js';
+import { createExportService } from './modules/export/index.js';
+import { createPlotDeviceService } from './modules/plotdevices/index.js';
+import { createConsistencyService } from './modules/consistency/index.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerNovelRoutes } from './routes/novels.js';
 import { registerAssetRoutes } from './routes/assets.js';
 import { registerOutlineRoutes } from './routes/outline.js';
 import { registerResearchRoutes } from './routes/research.js';
 import { registerWritingRoutes } from './routes/writing.js';
+import { registerExportRoutes } from './routes/export.js';
+import { registerQualityRoutes } from './routes/quality.js';
 
 export interface AppDeps {
   db: Database.Database;
@@ -105,6 +110,23 @@ export function buildApp(deps: AppDeps) {
     assembler,
     gateway: deps.gateway,
   });
+  const exportService = createExportService({
+    novels,
+    outline: outlineRepo,
+    scenes: sceneRepo,
+    facts: factRepo,
+    plotDevices: plotRepo,
+  });
+  const plotDeviceService = createPlotDeviceService({
+    repo: plotRepo,
+    outline: outlineRepo,
+    scenes: sceneRepo,
+  });
+  const consistency = createConsistencyService({
+    conflicts: conflictRepo,
+    plotDevices: plotRepo,
+    plotDeviceService,
+  });
 
   // 路由
   registerHealthRoutes(app, { db });
@@ -123,6 +145,8 @@ export function buildApp(deps: AppDeps) {
       plotDevices: plotRepo,
     },
   });
+  registerExportRoutes(app, { export: exportService });
+  registerQualityRoutes(app, { consistency, plotDevices: plotDeviceService, facts: factRepo });
 
   // 生产环境托管前端构建产物（dist/client）
   const clientDist = path.resolve(process.cwd(), 'dist', 'client');

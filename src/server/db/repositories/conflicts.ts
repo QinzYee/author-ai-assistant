@@ -42,6 +42,8 @@ export interface ConflictRepository {
   listOpen(novelId: string): Conflict[];
   resolve(id: string, resolution: string): Conflict | null;
   countOpen(novelId: string): number;
+  /** 人工裁决：更新状态（resolved/ignored）并可附带裁决说明 */
+  updateStatus(id: string, status: ConflictStatus, resolution?: string | null): Conflict | null;
 }
 
 export function createConflictRepository(db: Database.Database): ConflictRepository {
@@ -56,6 +58,9 @@ export function createConflictRepository(db: Database.Database): ConflictReposit
     "UPDATE conflicts SET status = 'resolved', resolution = @resolution, updated_at = datetime('now') WHERE id = @id"
   );
   const stmtCountOpen = db.prepare("SELECT COUNT(*) AS c FROM conflicts WHERE novel_id = ? AND status = 'open'");
+  const stmtUpdateStatus = db.prepare(
+    "UPDATE conflicts SET status = @status, resolution = COALESCE(@resolution, resolution), updated_at = datetime('now') WHERE id = @id"
+  );
 
   return {
     create(input) {
@@ -88,6 +93,13 @@ export function createConflictRepository(db: Database.Database): ConflictReposit
     },
     countOpen(novelId) {
       return (stmtCountOpen.get(novelId) as { c: number }).c;
+    },
+    updateStatus(id, status, resolution = null) {
+      const current = stmtGet.get(id) as ConflictRow | undefined;
+      if (!current) return null;
+      stmtUpdateStatus.run({ id, status, resolution });
+      const row = stmtGet.get(id) as ConflictRow;
+      return toConflict(row);
     },
   };
 }

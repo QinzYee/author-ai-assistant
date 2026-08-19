@@ -110,6 +110,40 @@ export function registerWritingRoutes(app: FastifyInstance, deps: { writing: Wri
     return { ok: true, data: data.plotDevices.list(req.params.novelId) };
   });
 
+  // 冲突人工裁决（§10.1 处置层）：resolved / ignored
+  app.patch(
+    '/api/novels/:novelId/conflicts/:id',
+    async (req: FastifyRequest<{ Params: { novelId: string; id: string }; Body: { status: 'open' | 'auto_fixed' | 'resolved' | 'ignored'; resolution?: string } }>, reply: FastifyReply): Promise<ApiResponse<unknown>> => {
+      if (!req.body?.status) {
+        reply.code(400);
+        return { ok: false, error: 'status 必填' };
+      }
+      const conflict = data.conflicts.updateStatus(req.params.id, req.body.status, req.body.resolution ?? null);
+      if (!conflict) {
+        reply.code(404);
+        return { ok: false, error: 'conflict not found' };
+      }
+      return { ok: true, data: conflict };
+    }
+  );
+
+  // 伏笔状态推进（§10.2）：develop / payoff / abandoned
+  app.patch(
+    '/api/novels/:novelId/plotdevices/:id',
+    async (req: FastifyRequest<{ Params: { novelId: string; id: string }; Body: { status: 'planted' | 'developing' | 'paid_off' | 'abandoned' | 'forgotten' } }>, reply: FastifyReply): Promise<ApiResponse<unknown>> => {
+      if (!req.body?.status) {
+        reply.code(400);
+        return { ok: false, error: 'status 必填' };
+      }
+      const device = data.plotDevices.updateStatus(req.params.id, req.body.status);
+      if (!device) {
+        reply.code(404);
+        return { ok: false, error: 'plot device not found' };
+      }
+      return { ok: true, data: device };
+    }
+  );
+
   // ---- 记忆（§7） ----
   app.get('/api/novels/:novelId/memory', async (req: FastifyRequest<{ Params: { novelId: string } }>): Promise<ApiResponse<unknown>> => {
     return { ok: true, data: memory.memoryStatus(req.params.novelId) };
