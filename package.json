@@ -6,13 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "tsx watch src/server/index.ts",
+    "dev:server": "tsc -p tsconfig.server.json && node dist/server/server/index.js",
     "dev:client": "vite",
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p tsconfig.server.json",
     "build:client": "vite build",
     "start": "cross-env NODE_ENV=production node dist/server/server/index.js",
-    "db:migrate": "tsx src/server/db/migrate.ts",
+    "db:migrate": "tsc -p tsconfig.server.json && node dist/server/server/db/migrate.js",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit"
   },
   "dependencies": {
