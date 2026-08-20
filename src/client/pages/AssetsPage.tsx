@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNovel } from '../context/NovelContext';
 import * as api from '../api/client';
 import type { Asset, AssetState, AssetType } from '../types';
@@ -52,12 +52,25 @@ export default function AssetsPage() {
   const [newType, setNewType] = useState<AssetType>('character');
   const [selected, setSelected] = useState<Asset | null>(null);
   const [history, setHistory] = useState<AssetState[]>([]);
+  // 多选 / 批量删除
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [removing, setRemoving] = useState(false);
+  // 详情面板核心属性草稿（受控，切资产时重置）
+  const [coreDraft, setCoreDraft] = useState<Record<string, string>>({});
+  const detailIdRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!current) return;
     setLoading(true);
     try {
-      setAssets(await api.listAssets(current.id));
+      const list = await api.listAssets(current.id);
+      setAssets(list);
+      setSelectedIds((prev) => {
+        if (prev.size === 0) return prev;
+        const existing = new Set(list.map((a) => a.id));
+        const next = new Set([...prev].filter((id) => existing.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -69,10 +82,14 @@ export default function AssetsPage() {
     setAssets([]);
     setSelected(null);
     setHistory([]);
+    setSelectedIds(new Set());
+    setCoreDraft({});
+    detailIdRef.current = null;
     void load();
   }, [current?.id, load]);
 
   const filtered = filter ? assets.filter((a) => a.type === filter) : assets;
+  const allSelected = filtered.length > 0 && filtered.every((a) => selectedIds.has(a.id));
 
   const create = async () => {
     if (!current || !newName.trim()) return;
@@ -88,8 +105,17 @@ export default function AssetsPage() {
 
   const openDetail = async (asset: Asset) => {
     setSelected(asset);
+    // 重置核心属性草稿（受控输入框跟随当前资产）
+    const fields = (CORE_FIELDS[asset.type] ?? []).map((f) => f.key);
+    const draft: Record<string, string> = {};
+    for (const k of fields) draft[k] = String((asset.core as Record<string, unknown>)?.[k] ?? '');
+    setCoreDraft(draft);
+    // 异步加载版本历史：快速切换时只保留最后一次请求的结果
     if (current) {
-      setHistory(await api.assetStates(current.id, asset.id));
+      detailIdRef.current = asset.id;
+      const id = asset.id;
+      const h = await api.assetStates(current.id, asset.id);
+      if (detailIdRef.current === id) setHistory(h);
     }
   };
 
@@ -98,6 +124,7 @@ export default function AssetsPage() {
     const core = { ...(selected.core ?? {}), [key]: value };
     const updated = await api.updateAsset(current.id, selected.id, { core });
     setSelected(updated);
+    setCoreDraft((d) => ({ ...d, [key]: value }));
     await load();
   };
 
@@ -107,9 +134,52 @@ export default function AssetsPage() {
     try {
       await api.deleteAsset(current.id, asset.id);
       if (selected?.id === asset.id) setSelected(null);
+      setSelectedIds((prev) => {
+        if (!prev.has(asset.id)) return prev;
+        const next = new Set(prev);
+        next.delete(asset.id);
+        return next;
+      });
       await load();
     } catch (e) {
       setError((e as Error).message);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) filtered.forEach((a) => next.delete(a.id));
+      else filtered.forEach((a) => next.add(a.id));
+      return next;
+    });
+  };
+
+  const removeSelected = async () => {
+    if (!current || selectedIds.size === 0) return;
+    const names = assets.filter((a) => selectedIds.has(a.id)).map((a) => a.name);
+    if (!confirm(`删除选中的 ${selectedIds.size} 项资产？\n${names.join('、')}`)) return;
+    setRemoving(true);
+    setError(null);
+    try {
+      await Promise.all([...selectedIds].map((id) => api.deleteAsset(current.id, id)));
+      if (selected && selectedIds.has(selected.id)) setSelected(null);
+      setSelectedIds(new Set());
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+      await load();
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -118,17 +188,17 @@ export default function AssetsPage() {
     .filter((g) => g.items.length > 0);
 
   return (
-    <div className="max-w-5xl">
-      <h2 className="text-2xl font-semibold mb-1">资产库</h2>
-      <p className="text-sm text-slate-500 mb-6">core 常驻 + extended 按需 + 版本化历史（§9）</p>
+    <div className="page max-w-5xl">
+      <h2 className="page-title">资产库</h2>
+      <p className="page-desc">core 常驻 + extended 按需 + 版本化历史</p>
 
-      {error && <div className="mb-4 rounded-lg bg-rose-900/40 border border-rose-800 px-4 py-3 text-sm text-rose-200">{error}</div>}
+      {error && <div className="alert-error mt-4">{error}</div>}
 
-      <div className="flex items-center gap-2 mb-6">
-        <div className="flex gap-1.5">
+      <div className="mt-5 flex items-center gap-2">
+        <div className="flex flex-wrap gap-1.5">
           <button
             onClick={() => setFilter('')}
-            className={`rounded-lg px-3 py-1.5 text-sm ${filter === '' ? 'bg-slate-700' : 'bg-slate-900 hover:bg-slate-800'}`}
+            className={`btn-secondary btn-sm ${filter === '' ? '!bg-[var(--brand-50)] !text-[var(--brand-600)] !border-[var(--brand-200)]' : ''}`}
           >
             全部
           </button>
@@ -136,24 +206,41 @@ export default function AssetsPage() {
             <button
               key={t}
               onClick={() => setFilter(t)}
-              className={`rounded-lg px-3 py-1.5 text-sm ${filter === t ? 'bg-slate-700' : 'bg-slate-900 hover:bg-slate-800'}`}
+              className={`btn-secondary btn-sm ${filter === t ? '!bg-[var(--brand-50)] !text-[var(--brand-600)] !border-[var(--brand-200)]' : ''}`}
             >
               {TYPE_EMOJI[t]} {TYPE_LABEL[t]}
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setCreating(true)}
-          className="ml-auto rounded-lg bg-sky-600 hover:bg-sky-500 px-3 py-1.5 text-sm font-medium"
-        >
-          ＋ 新建资产
-        </button>
+        <button onClick={() => setCreating(true)} className="btn-primary btn-sm ml-auto">＋ 新建资产</button>
       </div>
 
+      {assets.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-[var(--text-2)]">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              className="h-3.5 w-3.5 accent-[var(--brand-500)]"
+            />
+            全选（当前列表）
+          </label>
+          <span className={`text-xs ${selectedIds.size > 0 ? 'font-medium text-[var(--brand-600)]' : 'text-[var(--text-3)]'}`}>
+            已选 {selectedIds.size} 项
+          </span>
+          {selectedIds.size > 0 && (
+            <button onClick={removeSelected} disabled={removing} className="btn-danger btn-sm ml-auto">
+              {removing ? '删除中…' : `🗑 删除选中 (${selectedIds.size})`}
+            </button>
+          )}
+        </div>
+      )}
+
       {creating && (
-        <div className="mb-6 flex items-center gap-2 rounded-lg bg-slate-900 border border-slate-800 p-3">
+        <div className="card card-pad mt-4 flex items-center gap-2">
           <select
-            className="rounded bg-slate-800 px-2 py-1.5 text-sm outline-none"
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm outline-none"
             value={newType}
             onChange={(e) => setNewType(e.target.value as AssetType)}
           >
@@ -162,60 +249,77 @@ export default function AssetsPage() {
             ))}
           </select>
           <input
-            className="flex-1 rounded bg-slate-800 px-2 py-1.5 text-sm outline-none focus:ring-1 ring-slate-500"
+            className="input flex-1"
             placeholder="名称"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && create()}
             autoFocus
           />
-          <button onClick={create} className="rounded bg-sky-600 hover:bg-sky-500 px-3 py-1.5 text-sm">创建</button>
-          <button onClick={() => setCreating(false)} className="rounded bg-slate-700 hover:bg-slate-600 px-3 py-1.5 text-sm">取消</button>
+          <button onClick={create} className="btn-primary btn-sm">创建</button>
+          <button onClick={() => setCreating(false)} className="btn-secondary btn-sm">取消</button>
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
         {/* 列表 */}
         <div className="space-y-5">
           {loading ? (
-            <div className="text-slate-500 text-sm">加载中…</div>
-          ) : grouped.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-800 p-10 text-center text-slate-600 text-sm">
-              暂无资产。可点击「新建资产」，或在大纲页生成「世界观/人物」自动创建。
+            <div className="flex items-center gap-2 text-sm text-[var(--text-3)]">
+              <span className="spinner text-[var(--brand-500)]" /> 加载中…
             </div>
+          ) : grouped.length === 0 ? (
+            <div className="empty">暂无资产。可点击「新建资产」，或在大纲页生成「世界观/人物」自动创建。</div>
           ) : (
             grouped.map((g) => (
               <section key={g.type}>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  {TYPE_EMOJI[g.type]} {TYPE_LABEL[g.type]} · {g.items.length}
-                </h3>
+                <h3 className="section-label">{TYPE_EMOJI[g.type]} {TYPE_LABEL[g.type]} · {g.items.length}</h3>
                 <div className="space-y-1.5">
-                  {g.items.map((a) => (
+                  {g.items.map((a) => {
+                    const isChecked = selectedIds.has(a.id);
+                    return (
                     <div
                       key={a.id}
                       onClick={() => openDetail(a)}
-                      className={`group flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 ${
-                        selected?.id === a.id ? 'border-sky-700 bg-slate-800' : 'border-slate-800 bg-slate-900/70 hover:bg-slate-800'
+                      className={`group flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
+                        isChecked
+                          ? 'border-[var(--brand-500)] bg-[var(--brand-50)] shadow-[0_0_0_1px_var(--brand-200)]'
+                          : selected?.id === a.id
+                          ? 'list-item-active'
+                          : 'list-item card-hover'
                       }`}
                     >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium truncate">{a.name}</div>
-                        {a.summary && <div className="text-xs text-slate-500 truncate">{a.summary}</div>}
+                      <label
+                        className="mr-2 flex shrink-0 cursor-pointer items-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleSelect(a.id)}
+                          className="h-3.5 w-3.5 accent-[var(--brand-500)]"
+                        />
+                      </label>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{a.name}</div>
+                        {a.summary && <div className="truncate text-xs text-[var(--text-3)]">{a.summary}</div>}
                       </div>
-                      <div className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5">v{a.current_version}</span>
+                      <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--text-3)]">
+                        {a.batch_label && <span className="badge-gray">{a.batch_label}</span>}
+                        <span className="badge-gray">v{a.current_version}</span>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             remove(a);
                           }}
-                          className="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-300"
+                          className="opacity-0 text-[var(--danger)] transition-opacity group-hover:opacity-100 hover:opacity-100"
                         >
                           ✕
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             ))
@@ -223,47 +327,47 @@ export default function AssetsPage() {
         </div>
 
         {/* 详情 / 版本历史 */}
-        <div className="lg:sticky lg:top-0 self-start">
+        <div className="self-start lg:sticky lg:top-0">
           {!selected ? (
-            <div className="rounded-xl border border-dashed border-slate-800 p-10 text-center text-slate-600 text-sm">
-              点击左侧资产查看核心属性与版本历史
-            </div>
+            <div className="empty">点击左侧资产查看核心属性与版本历史</div>
           ) : (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-              <div className="flex items-center justify-between mb-3">
+            <div key={selected.id} className="card card-pad">
+              <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-lg font-semibold">{TYPE_EMOJI[selected.type]} {selected.name}</h3>
-                <span className="text-xs text-slate-500">v{selected.current_version}</span>
+                <span className="flex items-center gap-2">
+                  {selected.batch_label && <span className="badge-gray">{selected.batch_label}</span>}
+                  <span className="badge-gray">v{selected.current_version}</span>
+                </span>
               </div>
 
-              <h4 className="text-xs font-semibold text-slate-500 mb-2">核心属性（常驻 prompt）</h4>
-              <div className="space-y-2 mb-4">
+              <h4 className="section-label">核心属性（常驻 prompt）</h4>
+              <div className="mb-4 space-y-2">
                 {(CORE_FIELDS[selected.type] ?? []).map((f) => (
                   <label key={f.key} className="block">
-                    <span className="text-xs text-slate-500">{f.label}</span>
+                    <span className="text-xs text-[var(--text-3)]">{f.label}</span>
                     <input
-                      className="mt-0.5 w-full rounded bg-slate-800 px-2 py-1.5 text-sm outline-none focus:ring-1 ring-slate-500"
-                      defaultValue={String((selected.core as Record<string, unknown>)?.[f.key] ?? '')}
+                      className="input mt-0.5"
+                      value={coreDraft[f.key] ?? ''}
+                      onChange={(e) => setCoreDraft((d) => ({ ...d, [f.key]: e.target.value }))}
                       onBlur={(e) => patchCore(f.key, e.target.value)}
                     />
                   </label>
                 ))}
-                {selected.summary && (
-                  <p className="text-xs text-slate-500">摘要：{selected.summary}</p>
-                )}
+                {selected.summary && <p className="text-xs text-[var(--text-3)]">摘要：{selected.summary}</p>}
               </div>
 
-              <h4 className="text-xs font-semibold text-slate-500 mb-2">版本历史（时间旅行）</h4>
+              <h4 className="section-label">版本历史（时间旅行）</h4>
               {history.length === 0 ? (
-                <p className="text-xs text-slate-600">暂无写回快照（v1 以 core 为准）。</p>
+                <p className="text-xs text-[var(--text-3)]">暂无写回快照（v1 以 core 为准）。</p>
               ) : (
                 <div className="space-y-2">
                   {[...history].reverse().map((s) => (
-                    <div key={s.id} className="rounded bg-slate-800/70 px-3 py-2 text-xs">
-                      <div className="flex items-center justify-between text-slate-400 mb-1">
-                        <span className="font-medium text-slate-300">v{s.version}</span>
+                    <div key={s.id} className="code-block text-xs">
+                      <div className="mb-1 flex items-center justify-between text-[var(--text-3)]">
+                        <span className="font-medium text-[var(--text-2)]">v{s.version}</span>
                         <span>{s.source_scene_id ? `来自场景 ${s.source_scene_id.slice(0, 8)}` : '手动写回'}</span>
                       </div>
-                      <pre className="whitespace-pre-wrap text-slate-400">{JSON.stringify(s.state, null, 2)}</pre>
+                      <pre className="whitespace-pre-wrap">{JSON.stringify(s.state, null, 2)}</pre>
                     </div>
                   ))}
                 </div>

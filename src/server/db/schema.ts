@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 
 /** 当前 schema 版本（用 PRAGMA user_version 跟踪） */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /**
  * 基础表 —— 对应架构文档 §5 数据模型（不含向量虚拟表，见 VEC_SQL）。
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS assets (
   core JSON NOT NULL,
   extended JSON,
   summary TEXT,
+  batch_label TEXT,
   current_version INT DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
@@ -205,6 +206,15 @@ export function migrate(db: Database.Database): { version: number; vecOk: boolea
       const hasCol = cols.some((c) => c.name === 'compacted');
       if (!hasCol) {
         db.exec("ALTER TABLE scenes ADD COLUMN compacted INT DEFAULT 0");
+      }
+    }
+
+    // v4 → v5：assets 增加 batch_label 列（分批生成的资产标记归属批次）
+    if (current < 5) {
+      const cols = db.pragma("table_info('assets')") as Array<{ name: string }>;
+      const hasCol = cols.some((c) => c.name === 'batch_label');
+      if (!hasCol) {
+        db.exec("ALTER TABLE assets ADD COLUMN batch_label TEXT");
       }
     }
 

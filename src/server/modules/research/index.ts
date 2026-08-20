@@ -1,6 +1,7 @@
 import type { LlmGateway } from '../../llm/index.js';
 import type { ResearchRepository } from '../../db/repositories/research.js';
 import type { NovelRepository } from '../../db/repositories/novels.js';
+import type { PromptsService } from '../prompts/index.js';
 import type { TrendResearch, ResearchReport, SearchHit } from '../../../shared/index.js';
 
 export interface ResearchServiceDeps {
@@ -8,17 +9,8 @@ export interface ResearchServiceDeps {
   novels: NovelRepository;
   gateway: LlmGateway;
   tavilyApiKey?: string;
+  prompts: PromptsService;
 }
-
-const ANALYSIS_SYSTEM = `你是网文题材分析师。基于搜索材料与模型知识，输出结构化调研报告。只输出 JSON：
-{
-  "heat_ranking": [{"genre":"题材/流派","trend":"趋势方向"}],
-  "reader_profiles": ["读者画像"],
-  "core_pleasure_points": ["核心爽点：升级感/悬念/情感/世界观新奇度"],
-  "blue_ocean_ideas": ["蓝海组合建议"],
-  "golden_three_chapters": ["黄金三章要素清单"],
-  "recommendation": "最终题材方向建议"
-}`;
 
 /** Tavily Search API（无 SDK，直接 fetch） */
 async function tavilySearch(query: string, apiKey: string): Promise<SearchHit[]> {
@@ -52,7 +44,7 @@ async function tavilySearch(query: string, apiKey: string): Promise<SearchHit[]>
 }
 
 export function createResearchService(deps: ResearchServiceDeps) {
-  const { repo, novels, gateway } = deps;
+  const { repo, novels, gateway, prompts } = deps;
 
   async function runResearch(novelId: string, query: string): Promise<TrendResearch> {
     const novel = novels.get(novelId);
@@ -82,7 +74,7 @@ export function createResearchService(deps: ResearchServiceDeps) {
 ${material}
 
 请给出调研报告。${searchNote}`;
-    const out = (await gateway.extract({ system: ANALYSIS_SYSTEM, user })).json as Partial<ResearchReport>;
+    const out = (await gateway.extract({ system: prompts.get('PROMPT_RESEARCH_ANALYSIS'), user })).json as Partial<ResearchReport>;
     const report: ResearchReport = {
       heat_ranking: Array.isArray(out.heat_ranking) ? out.heat_ranking : [],
       reader_profiles: Array.isArray(out.reader_profiles) ? out.reader_profiles : [],

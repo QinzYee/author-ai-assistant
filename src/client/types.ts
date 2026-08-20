@@ -12,6 +12,7 @@ export type {
   OutlineStatus,
   OutlineLayer,
   GenerateOutlineRequest,
+  RegenerateOutlineRequest,
   CoreIdea,
   WorldviewItem,
   CharacterBio,

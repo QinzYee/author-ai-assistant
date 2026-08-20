@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { OutlineService } from '../modules/outline/index.js';
-import type { OutlineNodeInput, GenerateOutlineRequest, ApiResponse } from '../../shared/index.js';
+import type { OutlineNodeInput, GenerateOutlineRequest, RegenerateOutlineRequest, ApiResponse } from '../../shared/index.js';
 
 interface Params {
   novelId: string;
@@ -64,6 +64,30 @@ export function registerOutlineRoutes(app: FastifyInstance, deps: { outline: Out
         return { ok: false, error: 'outline node not found' };
       }
       return { ok: true, data: true };
+    }
+  );
+
+  // 单节点按作者意见重新生成（人机协同）
+  app.post(
+    '/api/novels/:novelId/outline/:id/regenerate',
+    async (req: FastifyRequest<{ Params: Params; Body: RegenerateOutlineRequest }>, reply: FastifyReply): Promise<ApiResponse<unknown>> => {
+      const opinion = (req.body?.opinion ?? '').trim();
+      if (!opinion) {
+        reply.code(400);
+        return { ok: false, error: '意见（opinion）必填' };
+      }
+      try {
+        const node = await outline.regenerateNode(req.params.novelId, req.params.id, opinion);
+        return { ok: true, data: node };
+      } catch (err) {
+        const message = (err as Error).message;
+        if (/不存在|不属于|不支持/.test(message)) {
+          reply.code(400);
+        } else {
+          reply.code(500);
+        }
+        return { ok: false, error: message };
+      }
     }
   );
 

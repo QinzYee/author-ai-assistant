@@ -8,6 +8,7 @@ import type {
   OutlineNode,
   OutlineNodeInput,
   GenerateOutlineRequest,
+  RegenerateOutlineRequest,
   TrendResearch,
   HealthInfo,
   Scene,
@@ -73,10 +74,15 @@ export const updateOutlineNode = (novelId: string, id: string, patch: Partial<Ou
 export const deleteOutlineNode = (novelId: string, id: string) =>
   api<boolean>(`/novels/${novelId}/outline/${id}`, { method: 'DELETE' });
 export const generateOutlineLayer = (novelId: string, input: GenerateOutlineRequest) =>
-  api<{ kind: 'nodes'; nodes: OutlineNode[] } | { kind: 'assets'; count: number; names: string[] }>(
+  api<{ kind: 'nodes'; nodes: OutlineNode[]; skipped?: number } | { kind: 'assets'; count: number; names: string[]; batchLabel?: string; skipped?: number }>(
     `/novels/${novelId}/outline/generate`,
     { method: 'POST', body: JSON.stringify(input) }
   );
+export const regenerateOutlineNode = (novelId: string, id: string, opinion: string) =>
+  api<OutlineNode>(`/novels/${novelId}/outline/${id}/regenerate`, {
+    method: 'POST',
+    body: JSON.stringify({ opinion } as RegenerateOutlineRequest),
+  });
 
 // ---------- 调研 ----------
 export const getResearch = (novelId: string) => api<TrendResearch | null>(`/novels/${novelId}/research`);
@@ -101,7 +107,8 @@ export function generateSceneStream(
   novelId: string,
   outlineNodeId: string,
   onEvent: (ev: { type: string; [k: string]: unknown }) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  opts?: { opinion?: string }
 ): () => void {
   const controller = new AbortController();
   (async () => {
@@ -109,7 +116,7 @@ export function generateSceneStream(
       const res = await fetch(`/api/novels/${novelId}/writing/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outline_node_id: outlineNodeId }),
+        body: JSON.stringify({ outline_node_id: outlineNodeId, opinion: opts?.opinion ?? '' }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -273,4 +280,21 @@ export interface TestResult {
 export const getSettings = () => api<PublicSettings>('/settings');
 export const saveSettings = (payload: Record<string, string>) =>
   api<PublicSettings>('/settings', { method: 'PUT', body: JSON.stringify(payload) });
-export const testSettingsConnection = () => api<TestResult[]>('/settings/test', { method: 'POST', body: '{}' });
+/** 测试连接：携带当前屏幕上的配置（含未保存草稿），后端仅按此测试、不落库 */
+export const testSettingsConnection = (payload: Record<string, string> = {}) =>
+  api<TestResult[]>('/settings/test', { method: 'POST', body: JSON.stringify({ payload }) });
+
+// ---------- 提示词（可编辑，存 app_settings，key 前缀 PROMPT_） ----------
+export interface PromptEntry {
+  key: string;
+  label: string;
+  desc: string;
+  group: string;
+  hasPlaceholder?: boolean;
+  value: string;
+  source: 'db' | 'default';
+}
+
+export const getPrompts = () => api<PromptEntry[]>('/settings/prompts');
+export const savePrompts = (payload: Record<string, string>) =>
+  api<PromptEntry[]>('/settings/prompts', { method: 'PUT', body: JSON.stringify(payload) });

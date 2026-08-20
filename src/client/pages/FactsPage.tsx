@@ -9,10 +9,10 @@ const STATUS_LABEL: Record<FactCard['status'], string> = {
   retracted: '已撤回',
 };
 
-const STATUS_COLOR: Record<FactCard['status'], string> = {
-  active: 'bg-emerald-900/40 text-emerald-300',
-  superseded: 'bg-amber-900/40 text-amber-300',
-  retracted: 'bg-rose-900/40 text-rose-300',
+const STATUS_BADGE: Record<FactCard['status'], string> = {
+  active: 'badge-green',
+  superseded: 'badge-amber',
+  retracted: 'badge-red',
 };
 
 export default function FactsPage() {
@@ -65,57 +65,52 @@ export default function FactsPage() {
   };
 
   return (
-    <div className="max-w-5xl">
-      <h2 className="text-2xl font-semibold mb-1">事实卡片</h2>
-      <p className="text-sm text-slate-500 mb-6">L3 长期知识库：原子事实，永不删除，可作废/撤回（§8）</p>
+    <div className="page max-w-5xl">
+      <h2 className="page-title">事实卡片</h2>
+      <p className="page-desc">L3 长期知识库：原子事实，永不删除，可作废/撤回</p>
 
-      {error && (
-        <div className="mb-4 flex items-center justify-between rounded-lg bg-rose-900/40 border border-rose-800 px-4 py-3 text-sm text-rose-200">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-300">✕</button>
-        </div>
-      )}
+      {error && <div className="alert-error mt-4">{error}</div>}
 
-      <div className="mb-6 flex items-center gap-3">
+      <div className="mt-5 flex items-center gap-3">
         <input
-          className="flex-1 rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm outline-none focus:ring-1 ring-sky-500"
+          className="input flex-1"
           placeholder="搜索事实 / 实体…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <button
           onClick={() => setShowAll((v) => !v)}
-          className={`rounded-lg px-3 py-2 text-sm ${showAll ? 'bg-slate-700' : 'bg-slate-900 hover:bg-slate-800 border border-slate-800'}`}
+          className={`btn-secondary btn-sm shrink-0 ${showAll ? '!bg-[var(--brand-50)] !text-[var(--brand-600)]' : ''}`}
         >
           {showAll ? '含归档' : '仅有效'}
         </button>
-        <span className="text-xs text-slate-500 whitespace-nowrap">有效 {activeCount} / 共 {facts.length}</span>
+        <span className="whitespace-nowrap text-xs text-[var(--text-3)]">有效 {activeCount} / 共 {facts.length}</span>
       </div>
 
       {loading ? (
-        <div className="text-slate-500 text-sm">加载中…</div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-800 p-10 text-center text-slate-600 text-sm">
-          暂无事实卡片。创作场景后会自动提取事实入库。
+        <div className="mt-6 flex items-center gap-2 text-sm text-[var(--text-3)]">
+          <span className="spinner text-[var(--brand-500)]" /> 加载中…
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="empty mt-6">暂无事实卡片。创作场景后会自动提取事实入库。</div>
       ) : (
-        <div className="grid gap-2">
+        <div className="mt-5 grid gap-2">
           {filtered.map((f) => (
-            <div key={f.id} className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2.5">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-[10px] rounded px-1.5 py-0.5 ${STATUS_COLOR[f.status]}`}>{STATUS_LABEL[f.status]}</span>
-                  <span className="text-[10px] text-slate-600">置信度 {Math.round((f.confidence ?? 0.8) * 100)}%</span>
-                  {f.source_scene_id && <span className="text-[10px] text-slate-600">来自场景 {f.source_scene_id.slice(0, 8)}</span>}
+            <div key={f.id} className="list-item flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                  <span className={STATUS_BADGE[f.status]}>{STATUS_LABEL[f.status]}</span>
+                  <span className="text-[10px] text-[var(--text-3)]">置信度 {Math.round((f.confidence ?? 0.8) * 100)}%</span>
+                  {f.source_scene_id && <span className="text-[10px] text-[var(--text-3)]">来自场景 {f.source_scene_id.slice(0, 8)}</span>}
                 </div>
-                <p className="text-sm text-slate-200">{f.fact}</p>
+                <p className="break-words text-sm">{f.fact}</p>
                 {f.entities.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {f.entities.map((e) => (
                       <button
                         key={e}
                         onClick={() => setQuery(e)}
-                        className="text-[10px] rounded bg-slate-800 px-1.5 py-0.5 text-sky-300 hover:bg-slate-700"
+                        className="badge-brand cursor-pointer hover:opacity-80"
                       >
                         #{e}
                       </button>
@@ -125,18 +120,12 @@ export default function FactsPage() {
               </div>
               <div className="flex shrink-0 flex-col gap-1">
                 {f.status === 'active' && (
-                  <button
-                    onClick={() => setStatus(f, 'superseded')}
-                    className="rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/30 px-2 py-1 text-[11px]"
-                  >
+                  <button onClick={() => setStatus(f, 'superseded')} className="btn-secondary btn-sm">
                     作废
                   </button>
                 )}
                 {(f.status === 'superseded' || f.status === 'retracted') && (
-                  <button
-                    onClick={() => setStatus(f, 'active')}
-                    className="rounded bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 px-2 py-1 text-[11px]"
-                  >
+                  <button onClick={() => setStatus(f, 'active')} className="btn-secondary btn-sm">
                     恢复
                   </button>
                 )}

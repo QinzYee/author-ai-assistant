@@ -2,6 +2,7 @@ import type {
   LlmGateway,
   GatewayConfig,
   ProviderConfig,
+  ProviderKind,
   GenerateRequest,
   ExtractRequest,
 } from './types.js';
@@ -27,19 +28,14 @@ export function loadGatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
       embed: { provider: 'mock', model: 'mock' },
     };
   }
+
+  // 聊天 provider（正文/提取用哪家），默认 deepseek，可切换 minimax / openai / ollama
+  const chatProvider = (env.CHAT_PROVIDER ?? 'deepseek') as ProviderKind;
+  const chat = chatConfigFromEnv(env, chatProvider);
+
   return {
-    generate: {
-      provider: 'deepseek',
-      model: env.DEEPSEEK_MODEL ?? 'deepseek-chat',
-      apiKey: env.DEEPSEEK_API_KEY,
-      baseUrl: env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
-    },
-    extract: {
-      provider: 'deepseek',
-      model: env.EXTRACT_MODEL ?? env.DEEPSEEK_MODEL ?? 'deepseek-chat',
-      apiKey: env.DEEPSEEK_API_KEY,
-      baseUrl: env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
-    },
+    generate: { ...chat },
+    extract: { ...chat, model: env.EXTRACT_MODEL ?? chat.model },
     embed: {
       provider: 'siliconflow',
       model: env.EMBED_MODEL ?? 'BAAI/bge-m3',
@@ -47,6 +43,42 @@ export function loadGatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
       baseUrl: env.SILICONFLOW_BASE_URL ?? 'https://api.siliconflow.cn/v1',
     },
   };
+}
+
+/** 按聊天 provider 从 env 构建对应配置（含各自 key/url/model） */
+function chatConfigFromEnv(env: NodeJS.ProcessEnv, provider: ProviderKind): ProviderConfig {
+  switch (provider) {
+    case 'minimax':
+      return {
+        provider: 'minimax',
+        model: env.MINIMAX_MODEL ?? 'MiniMax-Text-01',
+        apiKey: env.MINIMAX_API_KEY,
+        baseUrl: env.MINIMAX_BASE_URL ?? 'https://api.minimaxi.com/v1',
+      };
+    case 'openai':
+      return {
+        provider: 'openai',
+        model: env.OPENAI_MODEL ?? 'gpt-4o-mini',
+        apiKey: env.OPENAI_API_KEY,
+        baseUrl: env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+      };
+    case 'ollama':
+      return {
+        provider: 'ollama',
+        model: env.OLLAMA_CHAT_MODEL ?? 'qwen2.5',
+        baseUrl: env.OLLAMA_BASE_URL ?? 'http://localhost:11434',
+      };
+    case 'mock':
+      return { provider: 'mock', model: 'mock' };
+    case 'deepseek':
+    default:
+      return {
+        provider: 'deepseek',
+        model: env.DEEPSEEK_MODEL ?? 'deepseek-chat',
+        apiKey: env.DEEPSEEK_API_KEY,
+        baseUrl: env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
+      };
+  }
 }
 
 function createProvider(getCfg: () => ProviderConfig): Pick<LlmGateway, 'generate' | 'extract' | 'embed'> {
@@ -59,6 +91,7 @@ function createProvider(getCfg: () => ProviderConfig): Pick<LlmGateway, 'generat
     case 'deepseek':
     case 'openai':
     case 'siliconflow':
+    case 'minimax':
       return createOpenAICompatGateway(getCfg);
     default:
       throw new Error(`未知 provider：${(cfg as ProviderConfig).provider}`);

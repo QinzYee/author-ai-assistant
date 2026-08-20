@@ -9,6 +9,7 @@ export interface NewAsset {
   core?: Record<string, unknown>;
   extended?: Record<string, unknown> | null;
   summary?: string | null;
+  batch_label?: string | null;
 }
 
 interface AssetRow {
@@ -19,6 +20,7 @@ interface AssetRow {
   core: string;
   extended: string | null;
   summary: string | null;
+  batch_label: string | null;
   current_version: number;
   created_at: string;
   updated_at: string;
@@ -60,6 +62,7 @@ function toAsset(row: AssetRow): Asset {
     core: parseJson(row.core, {}),
     extended: row.extended ? parseJson(row.extended, {}) : null,
     summary: row.summary,
+    batch_label: row.batch_label ?? null,
     current_version: row.current_version,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -112,13 +115,14 @@ export function createAssetRepository(db: Database.Database): AssetRepository {
   );
   const stmtGet = db.prepare('SELECT * FROM assets WHERE id = ?');
   const stmtInsert = db.prepare(
-    `INSERT INTO assets (id, novel_id, type, name, core, extended, summary, current_version)
-     VALUES (@id, @novel_id, @type, @name, @core, @extended, @summary, 1)`
+    `INSERT INTO assets (id, novel_id, type, name, core, extended, summary, batch_label, current_version)
+     VALUES (@id, @novel_id, @type, @name, @core, @extended, @summary, @batch_label, 1)`
   );
   const stmtUpdate = db.prepare(
     `UPDATE assets SET type = COALESCE(@type, type), name = COALESCE(@name, name),
        core = COALESCE(@core, core), extended = COALESCE(@extended, extended),
-       summary = COALESCE(@summary, summary), updated_at = datetime('now')
+       summary = COALESCE(@summary, summary), batch_label = COALESCE(@batch_label, batch_label),
+       updated_at = datetime('now')
      WHERE id = @id`
   );
   const stmtBumpVersion = db.prepare('UPDATE assets SET current_version = ?, updated_at = datetime(\'now\') WHERE id = ?');
@@ -155,6 +159,7 @@ export function createAssetRepository(db: Database.Database): AssetRepository {
         core: JSON.stringify(input.core ?? {}),
         extended: input.extended ? JSON.stringify(input.extended) : null,
         summary: input.summary ?? null,
+        batch_label: input.batch_label ?? null,
         current_version: 1,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -172,6 +177,7 @@ export function createAssetRepository(db: Database.Database): AssetRepository {
         core: patch.core !== undefined ? JSON.stringify(patch.core) : current.core,
         extended: patch.extended !== undefined ? (patch.extended ? JSON.stringify(patch.extended) : null) : current.extended,
         summary: patch.summary !== undefined ? patch.summary : current.summary,
+        batch_label: patch.batch_label !== undefined ? patch.batch_label : current.batch_label,
       };
       stmtUpdate.run(merged);
       return this.get(id);

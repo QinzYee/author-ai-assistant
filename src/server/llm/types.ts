@@ -26,6 +26,12 @@ export interface ExtractRequest {
   user: string;
   /** 可选：给模型的 JSON 结构说明（不强制 schema 校验，Phase 0 由模型遵守） */
   jsonSchema?: Record<string, unknown>;
+  /**
+   * JSON 模式：'object' 强制 json_object（只保证顶层是对象，数组类输出会冲突）；
+   * 'auto' 不强制，交由模型按 prompt 输出（数组/对象均可，卷/章/场景大纲用）。
+   * 默认 'object'，保持既有行为。
+   */
+  jsonMode?: 'object' | 'auto';
 }
 
 export interface StructuredResult {
@@ -43,7 +49,7 @@ export interface LlmGateway {
 }
 
 // ---------- 配置 ----------
-export type ProviderKind = 'deepseek' | 'openai' | 'siliconflow' | 'ollama' | 'mock';
+export type ProviderKind = 'deepseek' | 'openai' | 'siliconflow' | 'ollama' | 'minimax' | 'mock';
 
 export interface ProviderConfig {
   provider: ProviderKind;
@@ -57,4 +63,13 @@ export interface GatewayConfig {
   generate: ProviderConfig;
   extract: ProviderConfig;
   embed: ProviderConfig;
+}
+
+/**
+ * 判断 baseUrl 是否为 Anthropic Messages 兼容端点（如 MiniMax 的 https://api.minimaxi.com/anthropic）。
+ * 是则走 /v1/messages + x-api-key（Anthropic 格式）；否则走 OpenAI 兼容 /chat/completions + Bearer。
+ */
+export function isAnthropicBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  return /anthropic/i.test(baseUrl);
 }

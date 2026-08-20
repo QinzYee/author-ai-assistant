@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { SettingsService, LlmSettingsPayload } from '../modules/settings/index.js';
+import type { SettingsService } from '../modules/settings/index.js';
 import type { ApiResponse } from '../../shared/index.js';
 
 export function registerSettingsRoutes(app: FastifyInstance, deps: { settings: SettingsService }) {
@@ -13,27 +13,31 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: { settings: S
     }
   );
 
-  /** 保存设置（空字符串清除该项，回退 env）；保存后网关热生效 */
+  /** 保存设置（key 为 DB key 或 camelCase 字段名；空字符串清除该项，回退 env）；保存后网关热生效 */
   app.put(
     '/api/settings',
-    async (req: FastifyRequest<{ Body: Partial<LlmSettingsPayload> }>, reply: FastifyReply): Promise<ApiResponse<unknown>> => {
+    async (req: FastifyRequest<{ Body: Record<string, string> }>, reply: FastifyReply): Promise<ApiResponse<unknown>> => {
       const body = req.body ?? {};
       if (typeof body !== 'object' || Array.isArray(body)) {
         reply.code(400);
         return { ok: false, error: '请求体必须为设置对象' };
       }
-      const result = settings.save(body as LlmSettingsPayload);
+      const result = settings.save(body as Record<string, string>);
       return { ok: true, data: result };
     }
   );
 
-  /** 测试连接有效性：对 generate/extract/embed 各发最小请求 */
+  /** 测试连接有效性：对 generate/extract/embed 各发最小请求。
+   * 请求体可携带 `payload`（当前屏幕上的配置，含未保存草稿）——仅本次测试生效、不落库；
+   * 不带 payload 则测试当前已生效配置。 */
   app.post(
     '/api/settings/test',
-    async (req: FastifyRequest<{ Body?: { payload?: Partial<LlmSettingsPayload> } }>): Promise<ApiResponse<unknown>> => {
-      // 若附带 payload，先临时保存再测试（测试失败不保留）？—— 简单起见：仅测试当前生效配置
-      // 前端「测试」先调用 PUT 保存，再调用本接口，即可测到最新配置
-      const result = await settings.testConnection();
+    async (req: FastifyRequest<{ Body?: { payload?: Record<string, string> } }>): Promise<ApiResponse<unknown>> => {
+      const payload = req.body?.payload ?? {};
+      if (typeof payload !== 'object' || Array.isArray(payload)) {
+        return { ok: false, error: 'payload 必须为设置对象' };
+      }
+      const result = await settings.testConnection(payload as Record<string, string>);
       return { ok: true, data: result };
     }
   );

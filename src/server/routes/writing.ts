@@ -60,9 +60,9 @@ export function registerWritingRoutes(app: FastifyInstance, deps: { writing: Wri
   // 场景生成 —— SSE 流式（§12.2 进度反馈必须做）
   app.post(
     '/api/novels/:novelId/writing/generate',
-    async (req: FastifyRequest<{ Params: { novelId: string }; Body: { outline_node_id: string; override_body?: string } }>, reply: FastifyReply) => {
+    async (req: FastifyRequest<{ Params: { novelId: string }; Body: { outline_node_id: string; override_body?: string; opinion?: string } }>, reply: FastifyReply) => {
       const { novelId } = req.params;
-      const { outline_node_id: outlineNodeId, override_body: overrideBody } = req.body ?? {};
+      const { outline_node_id: outlineNodeId, override_body: overrideBody, opinion } = req.body ?? {};
       if (!outlineNodeId) {
         reply.code(400);
         return { ok: false, error: 'outline_node_id 必填' };
@@ -83,6 +83,7 @@ export function registerWritingRoutes(app: FastifyInstance, deps: { writing: Wri
       try {
         await writing.generateScene(novelId, outlineNodeId, {
           overrideBody,
+          opinion,
           onEvent: (ev) => sse(ev),
         });
       } catch (err) {

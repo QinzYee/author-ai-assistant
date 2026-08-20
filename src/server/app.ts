@@ -15,8 +15,11 @@ import {
   createConflictRepository,
   createPlotDeviceRepository,
   createChunkRepository,
+  createSettingsRepository,
 } from './db/index.js';
 import type { SettingsService } from './modules/settings/index.js';
+import type { PromptsService } from './modules/prompts/index.js';
+import { createPromptsService } from './modules/prompts/index.js';
 import { createAssetService } from './modules/assets/index.js';
 import { createOutlineService } from './modules/outline/index.js';
 import { createResearchService } from './modules/research/index.js';
@@ -38,6 +41,7 @@ import { registerExportRoutes } from './routes/export.js';
 import { registerQualityRoutes } from './routes/quality.js';
 import { registerTimelineRoutes } from './routes/timeline.js';
 import { registerSettingsRoutes } from './routes/settings.js';
+import { registerPromptsRoutes } from './routes/prompts.js';
 
 export interface AppDeps {
   db: Database.Database;
@@ -62,6 +66,7 @@ export function buildApp(deps: AppDeps) {
   const chunkRepo = createChunkRepository(db);
 
   // services
+  const prompts = createPromptsService({ repo: createSettingsRepository(db) });
   const assets = createAssetService({ repo: assetRepo });
   const knowledge = createKnowledgeService({
     chunks: chunkRepo,
@@ -80,18 +85,21 @@ export function buildApp(deps: AppDeps) {
     assets: assetRepo,
     knowledge,
     gateway: deps.gateway,
+    prompts,
   });
   const outline = createOutlineService({
     repo: outlineRepo,
     assets: assetRepo,
     novels,
     gateway: deps.gateway,
+    prompts,
   });
   const research = createResearchService({
     repo: createResearchRepository(db),
     novels,
     gateway: deps.gateway,
     tavilyApiKey: process.env.TAVILY_API_KEY,
+    prompts,
   });
   const assembler = createContextAssembler({
     outline: outlineRepo,
@@ -101,6 +109,7 @@ export function buildApp(deps: AppDeps) {
     plotDevices: plotRepo,
     knowledge,
     gateway: deps.gateway,
+    prompts,
   });
   const writing = createWritingService({
     novels,
@@ -114,6 +123,7 @@ export function buildApp(deps: AppDeps) {
     memory,
     assembler,
     gateway: deps.gateway,
+    prompts,
   });
   const exportService = createExportService({
     novels,
@@ -140,6 +150,7 @@ export function buildApp(deps: AppDeps) {
   // 路由
   registerHealthRoutes(app, { db });
   registerSettingsRoutes(app, { settings: deps.settings });
+  registerPromptsRoutes(app, { prompts });
   registerNovelRoutes(app, { novels });
   registerAssetRoutes(app, { assets });
   registerOutlineRoutes(app, { outline });

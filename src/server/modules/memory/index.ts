@@ -7,6 +7,7 @@ import type { FactCardRepository } from '../../db/repositories/facts.js';
 import type { PlotDeviceRepository } from '../../db/repositories/plotdevices.js';
 import type { AssetRepository } from '../../db/repositories/assets.js';
 import type { KnowledgeService } from '../knowledge/index.js';
+import type { PromptsService } from '../prompts/index.js';
 import type { OutlineNode, SummaryLevel } from '../../../shared/index.js';
 
 export interface MemoryDeps {
@@ -18,19 +19,8 @@ export interface MemoryDeps {
   assets: AssetRepository;
   knowledge: KnowledgeService;
   gateway: LlmGateway;
+  prompts: PromptsService;
 }
-
-const SUMMARY_PROMPT = (kind: string) =>
-  `你是小说情节记忆整理器。将给定的${kind}内容压缩为简洁的情节摘要（保留关键事件、人物状态变化、伏笔推进），150 字以内，只输出 JSON：{"summary":"..."}`;
-
-const MATERIALIZE_FACTS_PROMPT = `你是事实卡片提取器。将场景正文中的持久事实提取为原子事实卡片。只输出 JSON：
-{"facts":[{"fact":"原子事实描述","entities":["相关实体"]}]}`;
-
-const MATERIALIZE_ASSETS_PROMPT = `你是资产更新器。根据场景正文提取资产状态变更。只输出 JSON：
-{"changes":[{"name":"人物/物品名","state":{"hp":"...","location":"..."},"relations":[]}]}`;
-
-const MATERIALIZE_PLOT_PROMPT = `你是伏笔台账整理器。提取正文中的伏笔操作。只输出 JSON：
-{"ops":[{"op":"plant|develop|payoff","description":"伏笔描述","type":"identity|item|event|prophecy|location"}]}`;
 
 /** L1 工作记忆预算（§7.1，≈16K token） */
 export const L1_BUDGET_TOKENS = 16000;
@@ -38,7 +28,12 @@ export const L1_BUDGET_TOKENS = 16000;
 export const L1_COMPACT_THRESHOLD = 0.85;
 
 export function createMemoryService(deps: MemoryDeps) {
-  const { summaries, scenes, outline, facts, plotDevices, assets, knowledge, gateway } = deps;
+  const { summaries, scenes, outline, facts, plotDevices, assets, knowledge, gateway, prompts } = deps;
+
+  /** 摘要提示词（{kind} 占位 → 场景正文/本章各场景摘要/卷各章摘要） */
+  function summaryPrompt(kind: string): string {
+    return prompts.get('PROMPT_MEMORY_SUMMARY', { kind });
+  }
 
   /** 估算某小说当前 L1 工作记忆占用（未 compact 场景正文的 token 总量，§7.1） */
   function workingMemoryTokens(novelId: string): number {
@@ -51,7 +46,7 @@ export function createMemoryService(deps: MemoryDeps) {
     const scene = scenes.get(sceneId);
     if (!scene) return '';
     const out = (await gateway.extract({
-      system: SUMMARY_PROMPT('场景正文'),
+      system: summaryPrompt('场景正文'),
       user: scene.content.slice(0, 3000),
     })).json as { summary?: string };
     const summary = typeof out.summary === 'string' ? out.summary : scene.content.slice(0, 100);
@@ -72,7 +67,7 @@ export function createMemoryService(deps: MemoryDeps) {
     for (const scene of candidates) {
       // ① 物化：事实卡片（去重）
       const factsOut = (await gateway.extract({
-        system: MATERIALIZE_FACTS_PROMPT,
+        system: prompts.get('PROMPT_MEMORY_FACTS'),
         user: scene.content.slice(0, 4000),
       })).json as { facts?: Array<{ fact: string; entities?: string[] }> };
       for (const f of factsOut.facts ?? []) {
@@ -82,7 +77,7 @@ export function createMemoryService(deps: MemoryDeps) {
 
       // ① 物化：资产状态变更（写回 asset_states，版本+1）
       const assetsOut = (await gateway.extract({
-        system: MATERIALIZE_ASSETS_PROMPT,
+        system: prompts.get('PROMPT_MEMORY_ASSETS'),
         user: scene.content.slice(0, 4000),
       })).json as { changes?: Array<{ name: string; state: Record<string, unknown> }> };
       for (const change of assetsOut.changes ?? []) {
@@ -92,7 +87,7 @@ export function createMemoryService(deps: MemoryDeps) {
 
       // ① 物化：伏笔操作
       const plotOut = (await gateway.extract({
-        system: MATERIALIZE_PLOT_PROMPT,
+        system: prompts.get('PROMPT_MEMORY_PLOT'),
         user: scene.content.slice(0, 4000),
       })).json as { ops?: Array<{ op: string; description: string; type?: string }> };
       for (const op of plotOut.ops ?? []) {
@@ -159,7 +154,7 @@ export function createMemoryService(deps: MemoryDeps) {
         })
         .join('\n');
       const out = (await gateway.extract({
-        system: SUMMARY_PROMPT('本章各场景摘要'),
+        system: summaryPrompt('本章各场景摘要'),
         user: input,
       })).json as { summary?: string };
       const chapterSummary = typeof out.summary === 'string' ? out.summary : input.slice(0, 100);
@@ -184,7 +179,7 @@ export function createMemoryService(deps: MemoryDeps) {
         })
         .join('\n');
       const out = (await gateway.extract({
-        system: SUMMARY_PROMPT('本章卷各章摘要'),
+        system: summaryPrompt('本章卷各章摘要'),
         user: input,
       })).json as { summary?: string };
       const volumeSummary = typeof out.summary === 'string' ? out.summary : input.slice(0, 100);
