@@ -29,6 +29,8 @@ export interface Asset {
   core: Record<string, unknown>;
   extended: Record<string, unknown> | null;
   summary: string | null;
+  /** 大纲分层生成的批次标记（如：世界观·第2批），用于辨认同批资产 */
+  batch_label: string | null;
   current_version: number;
   created_at: string;
   updated_at: string;
@@ -215,6 +217,7 @@ export interface AssetInput {
   core?: Record<string, unknown>;
   extended?: Record<string, unknown> | null;
   summary?: string | null;
+  batch_label?: string | null;
 }
 
 export interface AssetWriteBack {
@@ -251,6 +254,12 @@ export interface GenerateOutlineRequest {
   /** 子层生成时所属的父节点（chapter 生成时传 volume id，scene 生成时传 chapter id） */
   parent_id?: string | null;
   count?: number;
+}
+
+/** 单节点按作者意见重新生成（§4.2 人机协同：意见 → 重生成） */
+export interface RegenerateOutlineRequest {
+  /** 作者意见/修改要求 */
+  opinion: string;
 }
 
 /** 大纲分层生成的产出（LLM 结构化结果） */

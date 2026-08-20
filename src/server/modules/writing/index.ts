@@ -9,6 +9,7 @@ import type { PlotDeviceRepository } from '../../db/repositories/plotdevices.js'
 import type { KnowledgeService } from '../knowledge/index.js';
 import type { MemoryService } from '../memory/index.js';
 import type { ContextAssembler } from './contextAssembler.js';
+import type { PromptsService } from '../prompts/index.js';
 import type { SceneMeta, Scene, OutlineNode, PlotDeviceStatus } from '../../../shared/index.js';
 
 export interface WritingDeps {
@@ -23,6 +24,7 @@ export interface WritingDeps {
   memory: MemoryService;
   assembler: ContextAssembler;
   gateway: LlmGateway;
+  prompts: PromptsService;
 }
 
 export type WriteEvent =
@@ -36,32 +38,13 @@ export interface GenerateSceneOptions {
   onEvent?: (ev: WriteEvent) => void;
   /** 覆盖正文（调试/测试用） */
   overrideBody?: string;
+  /** 作者意见/修改要求（重生成时注入上下文，让 LLM 按意见改写正文） */
+  opinion?: string;
 }
 
 function emit(onEvent: ((ev: WriteEvent) => void) | undefined, ev: WriteEvent): void {
   onEvent?.(ev);
 }
-
-const EXTRACT_META_PROMPT = `你是小说创作流水线的元数据提取器。根据场景正文提取结构化元数据。只输出 JSON：
-{
-  "new_facts": ["原子事实，如：林晚左臂在第二章被划伤，尚未痊愈"],
-  "asset_changes": {"人物名": {"state": {"hp": "当前状态", "location": "当前位置"}, "relations": []}},
-  "foreshadowing_ops": [{"op": "plant|develop|payoff", "description": "伏笔描述", "type": "identity|item|event|prophecy|location"}],
-  "pov": "视角人物",
-  "time": "主线时间"
-}`;
-
-const ASSET_UPDATE_PROMPT = `你是资产更新器。根据场景正文与该场景涉及的旧资产状态，输出资产变更。只输出 JSON：
-{"changes": [{"name": "人物/物品名", "state": {"hp": "...", "location": "..."}, "relations": []}]}
-要求：只列状态真正发生变化的资产；状态要具体、可版本化。`;
-
-const FACT_EXTRACT_PROMPT = `你是事实卡片提取器。将场景正文中的持久事实提取为原子事实卡片。只输出 JSON：
-{"facts": [{"fact": "原子事实描述", "entities": ["相关实体"]}]}
-要求：提取的是不会随上下文变化的持久事实；去除临时感受。`;
-
-const VERIFY_PROMPT = `你是长篇小说一致性校验器。对比「新事实」与「既有事实/资产状态」，找出矛盾或遗漏。只输出 JSON：
-{"conflicts": [{"type": "contradiction|missing_detail|timeline_issue", "description": "问题描述", "evidence": "双方证据"}]}
-没有冲突则返回 {"conflicts": []}。`;
 
 /** 把正文切分为流式片段 */
 function chunkBody(body: string, size = 120): string[] {
@@ -72,7 +55,7 @@ function chunkBody(body: string, size = 120): string[] {
 }
 
 export function createWritingService(deps: WritingDeps) {
-  const { novels, outline, scenes, assets, facts, conflicts, plotDevices, knowledge, memory, assembler, gateway } = deps;
+  const { novels, outline, scenes, assets, facts, conflicts, plotDevices, knowledge, memory, assembler, gateway, prompts } = deps;
 
   /** 主流水线：一个场景的完整创作（§4.3） */
   async function generateScene(novelId: string, outlineNodeId: string, opts: GenerateSceneOptions = {}): Promise<Scene> {
@@ -89,12 +72,16 @@ export function createWritingService(deps: WritingDeps) {
 
     // ② 正文生成（主调用，流式）
     emit(onEvent, { type: 'status', stage: 'generate', message: '正在生成正文…' });
+    const messages =
+      opts.opinion && opts.opinion.trim()
+        ? [...ctx.messages, { role: 'user' as const, content: `作者对本次写作的意见与修改要求，请严格遵照并据此重写本场景：\n${opts.opinion.trim()}` }]
+        : ctx.messages;
     let body = '';
     if (opts.overrideBody) {
       body = opts.overrideBody;
       for (const piece of chunkBody(body)) emit(onEvent, { type: 'text', text: piece });
     } else {
-      for await (const chunk of gateway.generate({ messages: ctx.messages })) {
+      for await (const chunk of gateway.generate({ messages })) {
         if (chunk.type === 'text' && chunk.text) {
           body += chunk.text;
           emit(onEvent, { type: 'text', text: chunk.text });
@@ -115,7 +102,7 @@ export function createWritingService(deps: WritingDeps) {
     // ③ 元数据提取 pass（便宜模型）
     emit(onEvent, { type: 'status', stage: 'meta', message: '提取元数据…' });
     const meta = (await gateway.extract({
-      system: EXTRACT_META_PROMPT,
+      system: prompts.get('PROMPT_EXTRACT_META'),
       user: cleanBody.slice(0, 4000),
     })).json as SceneMeta;
     scene = scenes.update(scene.id, { meta }) ?? scene;
@@ -159,7 +146,7 @@ export function createWritingService(deps: WritingDeps) {
   async function runAssetUpdatePass(novelId: string, sceneNode: OutlineNode, meta: SceneMeta | null, body: string): Promise<void> {
     const entities = (sceneNode.content?.characters ?? []).map((c: string) => c.split('(')[0].trim());
     const out = (await gateway.extract({
-      system: ASSET_UPDATE_PROMPT,
+      system: prompts.get('PROMPT_ASSET_UPDATE'),
       user: `场景：${sceneNode.title ?? ''}\n出场人物：${entities.join('、')}\n正文：\n${body.slice(0, 4000)}`,
     })).json as { changes?: Array<{ name: string; state: Record<string, unknown>; relations?: unknown[] }> };
 
@@ -182,7 +169,7 @@ export function createWritingService(deps: WritingDeps) {
 
   async function runFactExtractPass(novelId: string, scene: Scene, meta: SceneMeta | null, body: string): Promise<string[]> {
     const out = (await gateway.extract({
-      system: FACT_EXTRACT_PROMPT,
+      system: prompts.get('PROMPT_FACT_EXTRACT'),
       user: body.slice(0, 4000),
     })).json as { facts?: Array<{ fact: string; entities?: string[] }> };
 
@@ -212,7 +199,7 @@ export function createWritingService(deps: WritingDeps) {
     if (newFacts.length === 0) return;
     const existing = facts.listActive(novelId).slice(0, 30);
     const out = (await gateway.extract({
-      system: VERIFY_PROMPT,
+      system: prompts.get('PROMPT_VERIFY'),
       user: `既有事实/资产：\n${existing.map((f) => `- ${f.fact}`).join('\n') || '（无）'}\n\n新事实：\n${newFacts.map((f) => `- ${f}`).join('\n')}`,
     })).json as { conflicts?: Array<{ type: 'contradiction' | 'missing_detail' | 'timeline_issue'; description: string; evidence?: string }> };
 

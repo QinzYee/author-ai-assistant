@@ -15,7 +15,11 @@ import {
   createConflictRepository,
   createPlotDeviceRepository,
   createChunkRepository,
+  createSettingsRepository,
 } from './db/index.js';
+import type { SettingsService } from './modules/settings/index.js';
+import type { PromptsService } from './modules/prompts/index.js';
+import { createPromptsService } from './modules/prompts/index.js';
 import { createAssetService } from './modules/assets/index.js';
 import { createOutlineService } from './modules/outline/index.js';
 import { createResearchService } from './modules/research/index.js';
@@ -23,16 +27,26 @@ import { createKnowledgeService } from './modules/knowledge/index.js';
 import { createMemoryService } from './modules/memory/index.js';
 import { createContextAssembler } from './modules/writing/contextAssembler.js';
 import { createWritingService } from './modules/writing/index.js';
+import { createExportService } from './modules/export/index.js';
+import { createPlotDeviceService } from './modules/plotdevices/index.js';
+import { createConsistencyService } from './modules/consistency/index.js';
+import { createTimelineService } from './modules/timeline/index.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerNovelRoutes } from './routes/novels.js';
 import { registerAssetRoutes } from './routes/assets.js';
 import { registerOutlineRoutes } from './routes/outline.js';
 import { registerResearchRoutes } from './routes/research.js';
 import { registerWritingRoutes } from './routes/writing.js';
+import { registerExportRoutes } from './routes/export.js';
+import { registerQualityRoutes } from './routes/quality.js';
+import { registerTimelineRoutes } from './routes/timeline.js';
+import { registerSettingsRoutes } from './routes/settings.js';
+import { registerPromptsRoutes } from './routes/prompts.js';
 
 export interface AppDeps {
   db: Database.Database;
   gateway: LlmGateway;
+  settings: SettingsService;
 }
 
 /** 构建 Fastify 应用（不含 listen） */
@@ -52,6 +66,7 @@ export function buildApp(deps: AppDeps) {
   const chunkRepo = createChunkRepository(db);
 
   // services
+  const prompts = createPromptsService({ repo: createSettingsRepository(db) });
   const assets = createAssetService({ repo: assetRepo });
   const knowledge = createKnowledgeService({
     chunks: chunkRepo,
@@ -70,18 +85,21 @@ export function buildApp(deps: AppDeps) {
     assets: assetRepo,
     knowledge,
     gateway: deps.gateway,
+    prompts,
   });
   const outline = createOutlineService({
     repo: outlineRepo,
     assets: assetRepo,
     novels,
     gateway: deps.gateway,
+    prompts,
   });
   const research = createResearchService({
     repo: createResearchRepository(db),
     novels,
     gateway: deps.gateway,
     tavilyApiKey: process.env.TAVILY_API_KEY,
+    prompts,
   });
   const assembler = createContextAssembler({
     outline: outlineRepo,
@@ -91,6 +109,7 @@ export function buildApp(deps: AppDeps) {
     plotDevices: plotRepo,
     knowledge,
     gateway: deps.gateway,
+    prompts,
   });
   const writing = createWritingService({
     novels,
@@ -104,10 +123,34 @@ export function buildApp(deps: AppDeps) {
     memory,
     assembler,
     gateway: deps.gateway,
+    prompts,
+  });
+  const exportService = createExportService({
+    novels,
+    outline: outlineRepo,
+    scenes: sceneRepo,
+    facts: factRepo,
+    plotDevices: plotRepo,
+  });
+  const plotDeviceService = createPlotDeviceService({
+    repo: plotRepo,
+    outline: outlineRepo,
+    scenes: sceneRepo,
+  });
+  const consistency = createConsistencyService({
+    conflicts: conflictRepo,
+    plotDevices: plotRepo,
+    plotDeviceService,
+  });
+  const timeline = createTimelineService({
+    assets: assetRepo,
+    outline: outlineRepo,
   });
 
   // 路由
   registerHealthRoutes(app, { db });
+  registerSettingsRoutes(app, { settings: deps.settings });
+  registerPromptsRoutes(app, { prompts });
   registerNovelRoutes(app, { novels });
   registerAssetRoutes(app, { assets });
   registerOutlineRoutes(app, { outline });
@@ -123,6 +166,9 @@ export function buildApp(deps: AppDeps) {
       plotDevices: plotRepo,
     },
   });
+  registerExportRoutes(app, { export: exportService });
+  registerQualityRoutes(app, { consistency, plotDevices: plotDeviceService, facts: factRepo });
+  registerTimelineRoutes(app, { timeline });
 
   // 生产环境托管前端构建产物（dist/client）
   const clientDist = path.resolve(process.cwd(), 'dist', 'client');

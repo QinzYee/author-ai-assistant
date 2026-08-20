@@ -17,12 +17,15 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
-export function createOllamaGateway(cfg: ProviderConfig): OllamaGateway {
-  const model = cfg.model;
-  const baseUrl = stripTrailingSlash(cfg.baseUrl ?? 'http://localhost:11434');
+export function createOllamaGateway(getCfg: () => ProviderConfig): OllamaGateway {
+  function resolve(): ProviderConfig {
+    return getCfg();
+  }
 
   async function* generate(req: GenerateRequest): AsyncIterable<Chunk> {
-    const res = await fetch(`${baseUrl}/api/chat`, {
+    const { model, baseUrl } = resolve();
+    const url = `${stripTrailingSlash(baseUrl ?? 'http://localhost:11434')}/api/chat`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -71,11 +74,13 @@ export function createOllamaGateway(cfg: ProviderConfig): OllamaGateway {
   }
 
   async function extract(req: ExtractRequest): Promise<StructuredResult> {
+    const { model, baseUrl } = resolve();
+    const url = `${stripTrailingSlash(baseUrl ?? 'http://localhost:11434')}/api/chat`;
     const messages = [];
     if (req.system) messages.push({ role: 'system', content: req.system });
     messages.push({ role: 'user', content: req.user });
 
-    const res = await fetch(`${baseUrl}/api/chat`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -98,7 +103,9 @@ export function createOllamaGateway(cfg: ProviderConfig): OllamaGateway {
   }
 
   async function embed(texts: string[], modelOverride?: string): Promise<number[][]> {
-    const res = await fetch(`${baseUrl}/api/embed`, {
+    const { model, baseUrl } = resolve();
+    const url = `${stripTrailingSlash(baseUrl ?? 'http://localhost:11434')}/api/embed`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: modelOverride ?? model, input: texts }),

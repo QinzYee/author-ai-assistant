@@ -41,6 +41,8 @@ export interface FactCardRepository {
   listActive(novelId: string): FactCard[];
   listByEntities(novelId: string, entities: string[]): FactCard[];
   markSuperseded(id: string): FactCard | null;
+  /** 人工处置：置为 superseded / retracted（Phase 4 事实卡片面板） */
+  updateStatus(id: string, status: FactCardStatus): FactCard | null;
   listAll(novelId: string): FactCard[];
 }
 
@@ -59,6 +61,7 @@ export function createFactCardRepository(db: Database.Database): FactCardReposit
   );
   const stmtAll = db.prepare('SELECT * FROM fact_cards WHERE novel_id = ? ORDER BY created_at DESC');
   const stmtSupersede = db.prepare("UPDATE fact_cards SET status = 'superseded' WHERE id = ?");
+  const stmtStatus = db.prepare('UPDATE fact_cards SET status = @status WHERE id = @id');
 
   return {
     create(input) {
@@ -103,6 +106,13 @@ export function createFactCardRepository(db: Database.Database): FactCardReposit
       stmtSupersede.run(id);
       const row = stmtGet.get(id) as FactRow | undefined;
       return row ? toCard(row) : null;
+    },
+    updateStatus(id, status) {
+      const current = stmtGet.get(id) as FactRow | undefined;
+      if (!current) return null;
+      stmtStatus.run({ status, id });
+      const row = stmtGet.get(id) as FactRow;
+      return toCard(row);
     },
     listAll(novelId) {
       return (stmtAll.all(novelId) as FactRow[]).map(toCard);

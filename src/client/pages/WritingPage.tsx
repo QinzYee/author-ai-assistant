@@ -36,6 +36,9 @@ export default function WritingPage() {
   const [streamedText, setStreamedText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<(() => void) | null>(null);
+  // 每个场景节点的意见草稿（按意见重生成）
+  const [opinionDrafts, setOpinionDrafts] = useState<Record<string, string>>({});
+  const [opinionOpen, setOpinionOpen] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     if (!current) return;
@@ -61,17 +64,19 @@ export default function WritingPage() {
     setFacts([]);
     setDevices([]);
     setSelectedSceneId('');
+    setOpinionDrafts({});
+    setOpinionOpen({});
     void load();
   }, [current?.id, load]);
 
   const sceneNodes = useMemo(() => outline.filter((n) => n.level === 'scene'), [outline]);
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? null;
 
-  const beginGenerate = async (node: OutlineNode) => {
+  const beginGenerate = async (node: OutlineNode, opinion?: string) => {
     if (!current) return;
     setGenerating(true);
     setError(null);
-    setProgress(['发起生成…']);
+    setProgress([opinion?.trim() ? '按意见重写中…' : '发起生成…']);
     setStreamedText('');
     setSelectedSceneId('');
 
@@ -97,7 +102,8 @@ export default function WritingPage() {
       (err) => {
         setError(err.message);
         setGenerating(false);
-      }
+      },
+      { opinion }
     );
   };
 
@@ -115,66 +121,85 @@ export default function WritingPage() {
 
   return (
     <div className="max-w-6xl">
-      <h2 className="text-2xl font-semibold mb-1">创作工作台</h2>
-      <p className="text-sm text-slate-500 mb-6">场景级流水线：上下文组装 → 正文生成（SSE 进度）→ 资产/事实/校验/摘要 pass → 分块入库（§4.3）</p>
+      <h2 className="page-title">创作工作台</h2>
+      <p className="page-desc">场景级流水线：上下文组装 → 正文生成（SSE 进度）→ 资产/事实/校验/摘要 pass → 分块入库</p>
 
-      {error && (
-        <div className="mb-4 flex items-center justify-between rounded-lg bg-rose-900/40 border border-rose-800 px-4 py-3 text-sm text-rose-200">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-300">✕</button>
-        </div>
-      )}
+      {error && <div className="alert-error mt-4">{error}</div>}
 
-      <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
+      <div className="mt-5 grid gap-6 lg:grid-cols-[340px_1fr]">
         {/* 左侧：场景大纲列表 + 进度 */}
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3">场景列表（待创作）</h3>
+          <div className="card card-pad">
+            <h3 className="section-label">场景列表（待创作）</h3>
             {sceneNodes.length === 0 ? (
-              <p className="text-xs text-slate-600">暂无场景大纲，请先在大纲页生成。</p>
+              <p className="text-xs text-[var(--text-3)]">暂无场景大纲，请先在大纲页生成。</p>
             ) : (
               <div className="space-y-1.5">
                 {sceneNodes.map((n) => {
                   const sc = scenes.find((s) => s.outline_node_id === n.id);
+                  const draft = opinionDrafts[n.id] ?? '';
+                  const open = opinionOpen[n.id] ?? false;
                   return (
-                    <div
-                      key={n.id}
-                      className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
-                    >
+                    <div key={n.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 px-3 py-2 transition-colors hover:border-[var(--border-strong)]">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{n.title}</div>
-                          {n.summary && <div className="text-xs text-slate-500 truncate">{n.summary}</div>}
+                          <div className="truncate text-sm font-medium">{n.title}</div>
+                          {n.summary && <div className="truncate text-xs text-[var(--text-3)]">{n.summary}</div>}
                         </div>
                         {sc ? (
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-300">
-                            已生成 {sc.word_count} 字
-                          </span>
+                          <span className="badge-green shrink-0">已生成 {sc.word_count} 字</span>
                         ) : (
                           <button
                             onClick={() => beginGenerate(n)}
                             disabled={generating}
-                            className="shrink-0 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 px-2.5 py-1 text-xs font-medium"
+                            className="btn-primary btn-sm shrink-0"
                           >
                             生成
                           </button>
                         )}
                       </div>
                       {sc && (
-                        <div className="mt-1.5 flex items-center gap-1.5">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                           <button
                             onClick={() => setSelectedSceneId(sc.id)}
-                            className="text-xs text-slate-400 hover:text-white rounded bg-slate-800 px-2 py-0.5"
+                            className={`btn-ghost btn-sm ${selectedSceneId === sc.id ? '!bg-[var(--brand-50)] !text-[var(--brand-600)]' : ''}`}
                           >
                             {selectedSceneId === sc.id ? '✓ 查看' : '查看'}
                           </button>
                           <button
                             onClick={() => beginGenerate(n)}
                             disabled={generating}
-                            className="text-xs text-slate-400 hover:text-white rounded bg-slate-800 px-2 py-0.5 disabled:opacity-40"
+                            className="btn-ghost btn-sm"
                           >
                             重生成
                           </button>
+                          <button
+                            onClick={() => setOpinionOpen((o) => ({ ...o, [n.id]: !open }))}
+                            className="btn-ghost btn-sm text-[var(--brand-600)]"
+                          >
+                            {open ? '收起意见' : '💬 意见'}
+                          </button>
+                        </div>
+                      )}
+                      {sc && open && (
+                        <div className="animate-slide-down mt-2 rounded-lg border border-[var(--brand-200)] bg-[var(--surface)] p-2">
+                          <textarea
+                            value={draft}
+                            onChange={(e) => setOpinionDrafts((d) => ({ ...d, [n.id]: e.target.value }))}
+                            rows={2}
+                            placeholder="输入意见，如：这段太拖沓，加快节奏、加个反转…"
+                            className="textarea text-xs"
+                          />
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <button
+                              onClick={() => beginGenerate(n, draft)}
+                              disabled={generating || !draft.trim()}
+                              className="btn-primary btn-sm"
+                            >
+                              {generating ? '生成中…' : '按意见重写'}
+                            </button>
+                            <span className="text-[10px] text-[var(--text-3)]">将按此意见重新生成场景正文</span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -186,24 +211,34 @@ export default function WritingPage() {
 
           {/* 进度 */}
           {progress.length > 0 && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-slate-300">生成进度</h3>
+            <div className="card card-pad">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">生成进度</h3>
                 {generating && (
-                  <button onClick={stopGenerate} className="text-xs text-rose-400 hover:text-rose-300">
+                  <button onClick={stopGenerate} className="text-xs text-[var(--danger)] hover:opacity-70">
                     停止
                   </button>
                 )}
               </div>
               <div className="space-y-1">
                 {progress.map((p, i) => (
-                  <div key={i} className={`text-xs ${p.includes('✅') ? 'text-emerald-400' : 'text-slate-400'}`}>
-                    {generating && i === progress.length - 1 ? <span className="inline-block animate-pulse">{p}</span> : p}
+                  <div
+                    key={i}
+                    className={`animate-fade-in flex items-center gap-1.5 text-xs ${p.includes('✅') ? 'text-[var(--success)]' : 'text-[var(--text-3)]'}`}
+                  >
+                    {generating && i === progress.length - 1 ? (
+                      <>
+                        <span className="spinner" />
+                        {p}
+                      </>
+                    ) : (
+                      p
+                    )}
                   </div>
                 ))}
               </div>
               {streamedText && (
-                <div className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 border border-slate-800 p-2 text-xs text-slate-300 whitespace-pre-wrap">
+                <div className="code-block mt-3 max-h-48 overflow-auto text-xs">
                   {streamedText}
                 </div>
               )}
@@ -219,7 +254,7 @@ export default function WritingPage() {
               <MetadataPanel facts={facts} devices={devices} scene={selectedScene} />
             </>
           ) : (
-            <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-800 text-slate-600 text-sm">
+            <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-[var(--border)] text-sm text-[var(--text-3)]">
               {generating ? '正在生成…' : '选择左侧场景查看/编辑，或点击「生成」创作新场景'}
             </div>
           )}
@@ -241,20 +276,18 @@ function SceneEditor({ scene, onSave }: { scene: Scene; onSave: (c: string) => v
   };
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-slate-300">场景正文 · {scene.word_count} 字 · {scene.status}</h3>
+    <div className="card card-pad">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold">场景正文 · {scene.word_count} 字 · {scene.status}</h3>
         <div className="flex items-center gap-2">
-          {saved && <span className="text-xs text-emerald-400">已保存</span>}
-          <button onClick={save} className="rounded bg-sky-600 hover:bg-sky-500 px-3 py-1 text-xs font-medium">
-            保存
-          </button>
+          {saved && <span className="text-xs text-[var(--success)]">已保存</span>}
+          <button onClick={save} className="btn-primary btn-sm">保存</button>
         </div>
       </div>
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        className="min-h-[320px] w-full rounded-lg bg-slate-950 border border-slate-800 p-3 text-sm leading-relaxed outline-none focus:ring-1 ring-sky-500"
+        className="textarea min-h-[320px] leading-relaxed"
         placeholder="场景正文…"
       />
     </div>
@@ -267,42 +300,42 @@ function MetadataPanel({ facts, devices, scene }: { facts: FactCard[]; devices: 
   const meta = scene.meta ?? {};
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-      <h3 className="text-sm font-semibold text-slate-300 mb-3">元数据与记忆</h3>
+    <div className="card card-pad">
+      <h3 className="section-label">元数据与记忆</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <h4 className="text-xs font-semibold text-slate-500 mb-1.5">🃏 事实卡片（本场景）</h4>
+          <h4 className="mb-1.5 text-xs font-semibold text-[var(--text-3)]">🃏 事实卡片（本场景）</h4>
           {sceneFacts.length === 0 ? (
-            <p className="text-xs text-slate-600">无</p>
+            <p className="text-xs text-[var(--text-3)]">无</p>
           ) : (
             <ul className="space-y-1">
               {sceneFacts.map((f) => (
-                <li key={f.id} className="text-xs text-slate-400">• {f.fact}</li>
+                <li key={f.id} className="text-xs text-[var(--text-2)]">• {f.fact}</li>
               ))}
             </ul>
           )}
         </div>
         <div>
-          <h4 className="text-xs font-semibold text-slate-500 mb-1.5">🪝 伏笔操作</h4>
+          <h4 className="mb-1.5 text-xs font-semibold text-[var(--text-3)]">🪝 伏笔操作</h4>
           {sceneDevices.length === 0 && !meta.foreshadowing_ops?.length ? (
-            <p className="text-xs text-slate-600">无</p>
+            <p className="text-xs text-[var(--text-3)]">无</p>
           ) : (
             <ul className="space-y-1">
               {sceneDevices.map((d) => (
-                <li key={d.id} className="text-xs text-slate-400">• [{d.status}] {d.description}</li>
+                <li key={d.id} className="text-xs text-[var(--text-2)]">• [{d.status}] {d.description}</li>
               ))}
               {(meta.foreshadowing_ops ?? []).map((op: { op: string; description: string }, i: number) => (
-                <li key={`op-${i}`} className="text-xs text-amber-400/80">• {op.op}: {op.description}</li>
+                <li key={`op-${i}`} className="text-xs text-[var(--warning)]">• {op.op}: {op.description}</li>
               ))}
             </ul>
           )}
         </div>
         <div className="sm:col-span-2">
-          <h4 className="text-xs font-semibold text-slate-500 mb-1.5">📝 场景元数据</h4>
+          <h4 className="mb-1.5 text-xs font-semibold text-[var(--text-3)]">📝 场景元数据</h4>
           {meta.pov || meta.time ? (
-            <p className="text-xs text-slate-400">POV: {meta.pov ?? '?'} ｜ 时间: {meta.time ?? '?'}</p>
+            <p className="text-xs text-[var(--text-2)]">POV: {meta.pov ?? '?'} ｜ 时间: {meta.time ?? '?'}</p>
           ) : (
-            <p className="text-xs text-slate-600">无</p>
+            <p className="text-xs text-[var(--text-3)]">无</p>
           )}
         </div>
       </div>

@@ -6,6 +6,7 @@ import type { SummaryRepository } from '../../db/repositories/summaries.js';
 import type { FactCardRepository } from '../../db/repositories/facts.js';
 import type { PlotDeviceRepository } from '../../db/repositories/plotdevices.js';
 import type { KnowledgeService } from '../knowledge/index.js';
+import type { PromptsService } from '../prompts/index.js';
 import type { Novel, OutlineNode } from '../../../shared/index.js';
 
 export interface AssemblerDeps {
@@ -16,6 +17,7 @@ export interface AssemblerDeps {
   plotDevices: PlotDeviceRepository;
   knowledge: KnowledgeService;
   gateway: LlmGateway;
+  prompts: PromptsService;
 }
 
 export interface AssembledContext {
@@ -28,25 +30,6 @@ export interface AssembledContext {
   entities: string[];
 }
 
-const SYSTEM_BASE = `你是一位专业的中文网文作者，擅长长篇小说的场景创作。请严格遵循：
-1. 只创作当前场景的正文，不写章、不写卷、不写说明；
-2. 严格遵守「创作规则」中的人物状态、世界观限制与一致性要求（§1 人机协同原则：AI 生成，人类裁决）；
-3. 正文控制在 1500~2500 字，节奏紧凑，有冲突推进与信息揭示；
-4. 不剧透尚未揭晓的设定，不违背既有事实卡片；
-5. 输出纯粹的小说正文（不加标题、不加引号包裹）。`;
-
-const SYSTEM_RULES = `【创作规则】
-- 文风：第三人称限知视角，跟随场景大纲声明的 POV 人物；
-- 时间线与地点必须与场景大纲一致；
-- 人物当前状态（伤势/位置/关系）必须与资产状态一致，不得擅自改变；
-- 未回收的伏笔必须小心处理：可以在本场景埋设/发展/回收，但不得遗忘；
-- 结局必须推进冲突并留下钩子。`;
-
-const SYSTEM_PROHIBIT = `【禁止剧透】
-- 不得泄露尚未通过正文揭示的世界观秘密；
-- 不得让角色知道他不该知道的信息。`;
-
-// 各层 token 预算（§6，总输入预算约 16K）
 const LAYER_BUDGET: Array<{ key: string; max: number; priority: number }> = [
   { key: 'system', max: 2000, priority: 0 }, // 必须保留
   { key: 'worldview', max: 1000, priority: 1 },
@@ -60,7 +43,7 @@ const LAYER_BUDGET: Array<{ key: string; max: number; priority: number }> = [
 ];
 
 export function createContextAssembler(deps: AssemblerDeps) {
-  const { outline, assets, summaries, facts, plotDevices, knowledge, gateway } = deps;
+  const { outline, assets, summaries, facts, plotDevices, knowledge, gateway, prompts } = deps;
 
   async function assemble(novel: Novel, sceneNode: OutlineNode): Promise<AssembledContext> {
     const novelId = novel.id;
@@ -71,8 +54,8 @@ export function createContextAssembler(deps: AssemblerDeps) {
     const location = typeof sceneContent.location === 'string' ? sceneContent.location : '';
     const entities = [...new Set([...characters, location].filter(Boolean))];
 
-    // ① 系统提示（必保留）
-    const system = `${SYSTEM_BASE}\n\n${SYSTEM_RULES}\n\n${SYSTEM_PROHIBIT}`;
+    // ① 系统提示（必保留）—— 提示词可前端覆盖
+    const system = `${prompts.get('PROMPT_WRITING_BASE')}\n\n${prompts.get('PROMPT_WRITING_RULES')}\n\n${prompts.get('PROMPT_WRITING_PROHIBIT')}`;
     usage.system = knowledge.estimateTokens(system);
 
     // ② 世界观核心规则（assets type=setting）

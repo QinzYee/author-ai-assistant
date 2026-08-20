@@ -21,3 +21,5 @@ export { createPlotDeviceRepository } from './repositories/plotdevices.js';
 export type { PlotDeviceRepository } from './repositories/plotdevices.js';
 export { createChunkRepository } from './repositories/chunks.js';
 export type { ChunkRepository, VecHit } from './repositories/chunks.js';
+export { createSettingsRepository } from './repositories/settings.js';
+export type { SettingsRepository } from './repositories/settings.js';
